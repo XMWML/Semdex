@@ -1,0 +1,1083 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Semdex 设置</title>
+<style>
+  :root {
+    --bg: #f4f6f5;
+    --surface: #ffffff;
+    --surface-soft: #edf2ef;
+    --text: #17231d;
+    --muted: #66736b;
+    --border: #d9e0db;
+    --primary: #0f766e;
+    --primary-strong: #0a5d56;
+    --primary-soft: #d8f0ea;
+    --link: #315fc9;
+    --danger: #b42318;
+    --danger-soft: #fee4e2;
+    --warn: #a75d09;
+    --focus: rgba(49, 95, 201, .2);
+    --shadow: 0 10px 28px rgba(23, 35, 29, .08);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #101614;
+      --surface: #18211d;
+      --surface-soft: #202b25;
+      --text: #e9f0eb;
+      --muted: #a7b3ac;
+      --border: #304036;
+      --primary: #56c6b5;
+      --primary-strong: #78d8c9;
+      --primary-soft: #183b35;
+      --link: #91b6ff;
+      --danger: #ff9285;
+      --danger-soft: #472520;
+      --warn: #f5ba68;
+      --focus: rgba(145, 182, 255, .24);
+      --shadow: 0 10px 28px rgba(0, 0, 0, .24);
+    }
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    min-width: 320px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", sans-serif;
+    font-size: 14px;
+    line-height: 1.45;
+  }
+
+  button, input, select, textarea { font: inherit; }
+  button, a { -webkit-tap-highlight-color: transparent; }
+
+  .shell { max-width: 1120px; margin: 0 auto; padding: 0 24px 32px; }
+
+  .topbar {
+    min-height: 68px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .brand {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 10px;
+    color: var(--text);
+    text-decoration: none;
+  }
+
+  .brand strong { font-size: 18px; letter-spacing: 0; }
+  .brand small { color: var(--muted); font-size: 12px; }
+
+  .back-link {
+    color: var(--link);
+    text-decoration: none;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .back-link:hover { text-decoration: underline; }
+
+  .page-head {
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    gap: 20px;
+    padding: 28px 0 18px;
+  }
+
+  .page-head h1 { margin: 0; font-size: 26px; line-height: 1.2; }
+  .page-head p { margin: 6px 0 0; color: var(--muted); }
+
+  .connection-state {
+    min-height: 24px;
+    color: var(--muted);
+    font-size: 13px;
+    text-align: right;
+  }
+
+  .connection-state.error { color: var(--danger); }
+  .connection-state.saved { color: var(--primary); }
+  .connection-state.dirty { color: var(--warn); }
+
+  form { padding-bottom: 0; }
+
+  .section {
+    padding: 26px 0;
+    border-top: 1px solid var(--border);
+  }
+
+  .section-heading {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+
+  .section-heading h2 { margin: 0; font-size: 17px; }
+  .section-heading p { margin: 0; color: var(--muted); font-size: 13px; }
+
+  .field-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px 16px;
+  }
+
+  .field { display: block; min-width: 0; }
+  .field.full { grid-column: 1 / -1; }
+  .field-label { display: block; margin: 0 0 6px; color: var(--muted); font-size: 12px; }
+
+  input[type="text"],
+  input[type="url"],
+  input[type="password"],
+  input[type="number"],
+  textarea,
+  select {
+    width: 100%;
+    min-height: 38px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface);
+    color: var(--text);
+    padding: 8px 10px;
+    outline: none;
+  }
+
+  textarea { min-height: 76px; resize: vertical; line-height: 1.45; }
+  select { cursor: pointer; }
+
+  input:focus, textarea:focus, select:focus {
+    border-color: var(--link);
+    box-shadow: 0 0 0 3px var(--focus);
+  }
+
+  input::placeholder, textarea::placeholder { color: var(--muted); opacity: .82; }
+
+  .field-note {
+    display: block;
+    margin-top: 5px;
+    color: var(--muted);
+    font-size: 11px;
+    line-height: 1.35;
+  }
+
+  .clear-key {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 5px;
+    color: var(--danger);
+    cursor: pointer;
+    font-size: 11px;
+  }
+
+  .clear-key input { margin: 0; }
+
+  .folder-list { display: grid; gap: 8px; }
+
+  .folder-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 34px;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .empty-folders {
+    min-height: 42px;
+    display: flex;
+    align-items: center;
+    padding: 0 10px;
+    color: var(--muted);
+    border: 1px dashed var(--border);
+    border-radius: 6px;
+    background: var(--surface-soft);
+    font-size: 13px;
+  }
+
+  .add-folder {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    margin-top: 10px;
+  }
+
+  button {
+    min-height: 38px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface);
+    color: var(--text);
+    padding: 7px 12px;
+    cursor: pointer;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  button:hover:not(:disabled) { border-color: var(--primary); color: var(--primary); }
+  button:focus-visible, a:focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+  button:disabled { cursor: wait; opacity: .6; }
+
+  .icon-button {
+    width: 34px;
+    min-width: 34px;
+    padding: 0;
+    color: var(--muted);
+    font-size: 21px;
+    line-height: 1;
+  }
+
+  .icon-button:hover:not(:disabled) { border-color: var(--danger); color: var(--danger); }
+  .primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+  .primary:hover:not(:disabled) { background: var(--primary-strong); border-color: var(--primary-strong); color: #fff; }
+
+  .model-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .model-card,
+  .integration-card {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface);
+  }
+
+  .model-card { padding: 14px; }
+
+  .model-head,
+  .integration-head,
+  .feature-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 14px;
+    align-items: center;
+  }
+
+  .model-head { margin-bottom: 14px; }
+  .model-kind { color: var(--muted); font-size: 11px; line-height: 1; }
+  .model-card h3, .integration-card h3, .feature-row h3 { margin: 4px 0 0; font-size: 15px; }
+
+  .model-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .model-fields .field.full { grid-column: 1 / -1; }
+
+  .switch {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    cursor: pointer;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .switch input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .switch-track {
+    position: relative;
+    width: 32px;
+    height: 18px;
+    flex: 0 0 32px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--surface-soft);
+    transition: background .16s, border-color .16s;
+  }
+
+  .switch-track::after {
+    content: "";
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    top: 2px;
+    left: 2px;
+    border-radius: 50%;
+    background: var(--muted);
+    transition: transform .16s, background .16s;
+  }
+
+  .switch input:checked + .switch-track { border-color: var(--primary); background: var(--primary); }
+  .switch input:checked + .switch-track::after { transform: translateX(14px); background: #fff; }
+  .switch input:focus-visible + .switch-track { box-shadow: 0 0 0 3px var(--focus); }
+
+  .integration-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .integration-card { padding: 16px; }
+  .integration-head { margin-bottom: 16px; align-items: flex-start; }
+  .integration-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .integration-fields .field.full { grid-column: 1 / -1; }
+
+  .feature-list { display: grid; gap: 1px; border-top: 1px solid var(--border); }
+
+  .feature-row {
+    min-height: 66px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .feature-row h3 { margin: 0; }
+  .feature-row p { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
+  .feature-settings { margin-top: 16px; }
+
+  .savebar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    margin-top: 8px;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface);
+    background: color-mix(in srgb, var(--surface) 94%, transparent);
+    box-shadow: var(--shadow);
+    backdrop-filter: blur(12px);
+  }
+
+  .savebar-note { min-width: 0; color: var(--muted); font-size: 12px; }
+  .save-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+
+  .toast {
+    position: fixed;
+    left: 50%;
+    bottom: 22px;
+    z-index: 10;
+    max-width: min(480px, calc(100vw - 32px));
+    transform: translate(-50%, 18px);
+    padding: 9px 12px;
+    border-radius: 6px;
+    background: var(--text);
+    color: var(--surface);
+    box-shadow: var(--shadow);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .18s, transform .18s;
+    font-size: 13px;
+  }
+
+  .toast.show { transform: translate(-50%, 0); opacity: 1; }
+  .toast.error { background: var(--danger); color: #fff; }
+  [hidden] { display: none !important; }
+
+  @media (max-width: 760px) {
+    .shell { padding: 0 16px 20px; }
+    .page-head { align-items: start; flex-direction: column; gap: 8px; }
+    .connection-state { text-align: left; }
+    .field-grid, .model-grid, .integration-grid { grid-template-columns: 1fr; }
+    .model-fields, .integration-fields { grid-template-columns: 1fr; }
+    .savebar { align-items: stretch; flex-direction: column; }
+    .save-actions { justify-content: stretch; }
+    .save-actions button { flex: 1 1 140px; }
+  }
+
+  @media (max-width: 470px) {
+    .topbar { min-height: 58px; }
+    .brand small { display: none; }
+    .section-heading { align-items: start; flex-direction: column; gap: 4px; }
+    .add-folder { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<main class="shell">
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="返回 Semdex 搜索">
+      <strong>Semdex</strong>
+      <small>本地文件语义索引</small>
+    </a>
+    <a class="back-link" href="/">返回搜索</a>
+  </header>
+
+  <div class="page-head">
+    <div>
+      <h1>设置</h1>
+      <p>索引目录、模型与本地能力</p>
+    </div>
+    <div class="connection-state" id="connectionState" role="status" aria-live="polite">正在加载设置</div>
+  </div>
+
+  <form id="settingsForm" novalidate>
+    <section class="section" aria-labelledby="storageTitle">
+      <div class="section-heading">
+        <h2 id="storageTitle">索引范围</h2>
+      </div>
+      <div class="field-grid">
+        <label class="field full">
+          <span class="field-label">索引数据库</span>
+          <input id="dbPath" type="text" spellcheck="false" autocomplete="off" placeholder="~/.semdex/index.db">
+        </label>
+        <div class="field full">
+          <span class="field-label">索引目录</span>
+          <div class="folder-list" id="folderList" aria-live="polite"></div>
+          <div class="add-folder">
+            <input id="newFolder" type="text" spellcheck="false" autocomplete="off" placeholder="/Users/name/Documents">
+            <button type="button" id="addFolder">添加目录</button>
+          </div>
+        </div>
+        <label class="field full">
+          <span class="field-label">排除规则</span>
+          <textarea id="exclude" spellcheck="false" placeholder=".git, node_modules, *.app"></textarea>
+        </label>
+        <label class="field">
+          <span class="field-label">单文件大小上限（MB）</span>
+          <input id="maxFileMb" type="number" min="0" step="1" inputmode="numeric">
+        </label>
+        <label class="field">
+          <span class="field-label">事件防抖（秒）</span>
+          <input id="debounceSec" type="number" min="0.1" step="0.1" inputmode="decimal">
+        </label>
+        <label class="field">
+          <span class="field-label">全量对账间隔（秒）</span>
+          <input id="reconcileSec" type="number" min="0" step="1" inputmode="numeric">
+        </label>
+        <label class="field">
+          <span class="field-label">向量分块大小（字符）</span>
+          <input id="chunkSize" type="number" min="1" step="1" inputmode="numeric">
+        </label>
+        <label class="field">
+          <span class="field-label">向量分块重叠（字符）</span>
+          <input id="chunkOverlap" type="number" min="0" step="1" inputmode="numeric">
+        </label>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="modelsTitle">
+      <div class="section-heading">
+        <h2 id="modelsTitle">模型</h2>
+        <p>每项能力可使用不同接口与模型</p>
+      </div>
+      <div class="model-grid" id="modelGrid">
+        <article class="model-card" data-model="llm">
+          <header class="model-head">
+            <div><div class="model-kind">兼容</div><h3>默认 LLM</h3></div>
+            <label class="switch"><input data-field="enabled" type="checkbox"><span class="switch-track" aria-hidden="true"></span><span>启用</span></label>
+          </header>
+          <div class="model-fields">
+            <label class="field full"><span class="field-label">接口地址</span><input data-field="base_url" type="url" spellcheck="false" autocomplete="off" placeholder="http://localhost:1234/v1"></label>
+            <label class="field"><span class="field-label">模型</span><input data-field="model" type="text" spellcheck="false" autocomplete="off"></label>
+            <div class="field"><span class="field-label">API Key</span><input data-field="api_key" type="password" autocomplete="new-password"><small class="field-note key-note"></small><label class="clear-key"><input data-field="clear_api_key" type="checkbox"><span>删除已保存密钥</span></label></div>
+          </div>
+        </article>
+
+        <article class="model-card" data-model="agent">
+          <header class="model-head">
+            <div><div class="model-kind">LLM</div><h3>检索 Agent</h3></div>
+            <label class="switch"><input data-field="enabled" type="checkbox"><span class="switch-track" aria-hidden="true"></span><span>启用</span></label>
+          </header>
+          <div class="model-fields">
+            <label class="field full"><span class="field-label">接口地址</span><input data-field="base_url" type="url" spellcheck="false" autocomplete="off" placeholder="http://localhost:1234/v1"></label>
+            <label class="field"><span class="field-label">模型</span><input data-field="model" type="text" spellcheck="false" autocomplete="off"></label>
+            <div class="field"><span class="field-label">API Key</span><input data-field="api_key" type="password" autocomplete="new-password"><small class="field-note key-note"></small><label class="clear-key"><input data-field="clear_api_key" type="checkbox"><span>删除已保存密钥</span></label></div>
+          </div>
+        </article>
+
+        <article class="model-card" data-model="entities">
+          <header class="model-head">
+            <div><div class="model-kind">LLM</div><h3>实体抽取</h3></div>
+            <label class="switch"><input data-field="enabled" type="checkbox"><span class="switch-track" aria-hidden="true"></span><span>启用</span></label>
+          </header>
+          <div class="model-fields">
+            <label class="field full"><span class="field-label">接口地址</span><input data-field="base_url" type="url" spellcheck="false" autocomplete="off" placeholder="http://localhost:1234/v1"></label>
+            <label class="field"><span class="field-label">模型</span><input data-field="model" type="text" spellcheck="false" autocomplete="off"></label>
+            <div class="field"><span class="field-label">API Key</span><input data-field="api_key" type="password" autocomplete="new-password"><small class="field-note key-note"></small><label class="clear-key"><input data-field="clear_api_key" type="checkbox"><span>删除已保存密钥</span></label></div>
+          </div>
+        </article>
+
+        <article class="model-card" data-model="fallback">
+          <header class="model-head">
+            <div><div class="model-kind">LLM</div><h3>提取兜底</h3></div>
+            <label class="switch"><input data-field="enabled" type="checkbox"><span class="switch-track" aria-hidden="true"></span><span>启用</span></label>
+          </header>
+          <div class="model-fields">
+            <label class="field full"><span class="field-label">接口地址</span><input data-field="base_url" type="url" spellcheck="false" autocomplete="off" placeholder="http://localhost:1234/v1"></label>
+            <label class="field"><span class="field-label">模型</span><input data-field="model" type="text" spellcheck="false" autocomplete="off"></label>
+            <div class="field"><span class="field-label">API Key</span><input data-field="api_key" type="password" autocomplete="new-password"><small class="field-note key-note"></small><label class="clear-key"><input data-field="clear_api_key" type="checkbox"><span>删除已保存密钥</span></label></div>
+          </div>
+        </article>
+
+        <article class="model-card" data-model="vision">
+          <header class="model-head">
+            <div><div class="model-kind">视觉</div><h3>图片理解</h3></div>
+            <label class="switch"><input data-field="enabled" type="checkbox"><span class="switch-track" aria-hidden="true"></span><span>启用</span></label>
+          </header>
+          <div class="model-fields">
+            <label class="field full"><span class="field-label">接口地址</span><input data-field="base_url" type="url" spellcheck="false" autocomplete="off" placeholder="http://localhost:1234/v1"></label>
+            <label class="field"><span class="field-label">模型</span><input data-field="model" type="text" spellcheck="false" autocomplete="off"></label>
+            <div class="field"><span class="field-label">API Key</span><input data-field="api_key" type="password" autocomplete="new-password"><small class="field-note key-note"></small><label class="clear-key"><input data-field="clear_api_key" type="checkbox"><span>删除已保存密钥</span></label></div>
+          </div>
+        </article>
+
+        <article class="model-card" data-model="embedding">
+          <header class="model-head">
+            <div><div class="model-kind">向量</div><h3>语义嵌入</h3></div>
+            <label class="switch"><input data-field="enabled" type="checkbox"><span class="switch-track" aria-hidden="true"></span><span>启用</span></label>
+          </header>
+          <div class="model-fields">
+            <label class="field full"><span class="field-label">接口地址</span><input data-field="base_url" type="url" spellcheck="false" autocomplete="off" placeholder="http://localhost:1234/v1"></label>
+            <label class="field"><span class="field-label">模型</span><input data-field="model" type="text" spellcheck="false" autocomplete="off"></label>
+            <div class="field"><span class="field-label">API Key</span><input data-field="api_key" type="password" autocomplete="new-password"><small class="field-note key-note"></small><label class="clear-key"><input data-field="clear_api_key" type="checkbox"><span>删除已保存密钥</span></label></div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="localToolsTitle">
+      <div class="section-heading">
+        <h2 id="localToolsTitle">OCR 与语音识别</h2>
+      </div>
+      <div class="integration-grid">
+        <article class="integration-card" id="ocrCard">
+          <header class="integration-head">
+            <div><h3>OCR</h3></div>
+            <label class="switch"><input id="ocrEnabled" type="checkbox"><span class="switch-track" aria-hidden="true"></span><span>启用</span></label>
+          </header>
+          <div class="integration-fields">
+            <label class="field full"><span class="field-label">提供方</span>
+              <select id="ocrProvider">
+                <option value="tesseract">Tesseract（本地命令）</option>
+                <option value="local_http">本地 HTTP（PaddleOCR 等）</option>
+              </select>
+            </label>
+            <label class="field ocr-tesseract"><span class="field-label">命令</span><input id="ocrCommand" type="text" spellcheck="false" autocomplete="off"></label>
+            <label class="field ocr-tesseract"><span class="field-label">PDF 渲染器</span><input id="ocrPdfRenderer" type="text" spellcheck="false" autocomplete="off"></label>
+            <label class="field ocr-tesseract"><span class="field-label">语言</span><input id="ocrLanguages" type="text" spellcheck="false" autocomplete="off" placeholder="eng+chi_sim"></label>
+            <label class="field ocr-tesseract"><span class="field-label">DPI</span><input id="ocrDpi" type="number" min="72" step="1" inputmode="numeric"></label>
+            <label class="field full ocr-http"><span class="field-label">接口地址</span><input id="ocrEndpoint" type="url" spellcheck="false" autocomplete="off" placeholder="http://127.0.0.1:8000"></label>
+            <label class="field ocr-http"><span class="field-label">响应文本路径</span><input id="ocrResponsePath" type="text" spellcheck="false" autocomplete="off" placeholder="data.text"></label>
+            <div class="field full ocr-http"><span class="field-label">API Key</span><input id="ocrApiKey" type="password" autocomplete="new-password"><small class="field-note" id="ocrKeyNote"></small><label class="clear-key"><input id="ocrClearApiKey" type="checkbox"><span>删除已保存密钥</span></label></div>
+            <label class="field full"><span class="field-label">超时（秒）</span><input id="ocrTimeoutSec" type="number" min="1" step="1" inputmode="numeric"></label>
+          </div>
+        </article>
+
+        <article class="integration-card" id="asrCard">
+          <header class="integration-head">
+            <div><h3>语音识别</h3></div>
+            <label class="switch"><input id="asrEnabled" type="checkbox"><span class="switch-track" aria-hidden="true"></span><span>启用</span></label>
+          </header>
+          <div class="integration-fields">
+            <label class="field full"><span class="field-label">提供方</span>
+              <select id="asrProvider">
+                <option value="faster_whisper">faster-whisper（本地）</option>
+                <option value="openai_compatible">OpenAI 兼容接口（Whisper / 自部署）</option>
+              </select>
+            </label>
+            <label class="field"><span class="field-label">模型</span><input id="asrModel" type="text" spellcheck="false" autocomplete="off" placeholder="base"></label>
+            <label class="field asr-local"><span class="field-label">运行设备</span>
+              <select id="asrDevice"><option value="auto">自动</option><option value="cpu">CPU</option><option value="cuda">CUDA</option></select>
+            </label>
+            <label class="field asr-local"><span class="field-label">计算精度</span>
+              <select id="asrComputeType"><option value="int8">int8</option><option value="float16">float16</option><option value="float32">float32</option><option value="int8_float16">int8_float16</option></select>
+            </label>
+            <label class="field asr-http"><span class="field-label">接口基地址</span><input id="asrBaseUrl" type="url" spellcheck="false" autocomplete="off" placeholder="http://127.0.0.1:9000/v1"></label>
+            <label class="field asr-http"><span class="field-label">转写接口</span><input id="asrEndpoint" type="url" spellcheck="false" autocomplete="off" placeholder="http://127.0.0.1:9000/v1/audio/transcriptions"></label>
+            <label class="field asr-http"><span class="field-label">语言</span><input id="asrLanguage" type="text" spellcheck="false" autocomplete="off" placeholder="zh"></label>
+            <label class="field asr-http"><span class="field-label">响应文本路径</span><input id="asrResponsePath" type="text" spellcheck="false" autocomplete="off" placeholder="text"></label>
+            <div class="field full asr-http"><span class="field-label">API Key</span><input id="asrApiKey" type="password" autocomplete="new-password"><small class="field-note" id="asrKeyNote"></small><label class="clear-key"><input id="asrClearApiKey" type="checkbox"><span>删除已保存密钥</span></label></div>
+            <label class="field full"><span class="field-label">超时（秒）</span><input id="asrTimeoutSec" type="number" min="1" step="1" inputmode="numeric"></label>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="featuresTitle">
+      <div class="section-heading"><h2 id="featuresTitle">功能开关</h2></div>
+      <div class="feature-list">
+        <div class="feature-row">
+          <div><h3>实体关系</h3><p>人名、项目、机构与日期</p></div>
+          <label class="switch"><input id="entitiesEnabled" type="checkbox"><span class="switch-track" aria-hidden="true"></span><span>启用</span></label>
+        </div>
+        <div class="feature-row">
+          <div><h3>提取兜底</h3><p>可读文本的模型处理</p></div>
+          <label class="switch"><input id="fallbackEnabled" type="checkbox"><span class="switch-track" aria-hidden="true"></span><span>启用</span></label>
+        </div>
+      </div>
+      <div class="field-grid feature-settings">
+        <label class="field"><span class="field-label">实体最大文本长度</span><input id="entitiesMaxChars" type="number" min="500" step="100" inputmode="numeric"></label>
+        <label class="field"><span class="field-label">每文件最多实体</span><input id="entitiesMaxPerFile" type="number" min="1" step="1" inputmode="numeric"></label>
+        <label class="field"><span class="field-label">Agent 最大步骤</span><input id="agentMaxSteps" type="number" min="1" step="1" inputmode="numeric"></label>
+        <label class="field"><span class="field-label">Agent 最大结果数</span><input id="agentMaxResults" type="number" min="1" step="1" inputmode="numeric"></label>
+        <label class="field"><span class="field-label">兜底读取上限（字节）</span><input id="fallbackMaxBytes" type="number" min="1024" step="1024" inputmode="numeric"></label>
+      </div>
+    </section>
+
+    <div class="savebar">
+      <div class="savebar-note" id="savebarNote">设置更改后需要保存</div>
+      <div class="save-actions">
+        <button type="button" id="saveButton">保存设置</button>
+        <button class="primary" type="button" id="saveIndexButton">保存并开始索引</button>
+      </div>
+    </div>
+  </form>
+</main>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(() => {
+  'use strict';
+
+  const $ = selector => document.querySelector(selector);
+  const form = $('#settingsForm');
+  const modelCards = Array.from(document.querySelectorAll('[data-model]'));
+  const connectionState = $('#connectionState');
+  const savebarNote = $('#savebarNote');
+  const toastElement = $('#toast');
+  const state = { dirty: false, hydrating: false, saving: false, toastTimer: null };
+  const MODEL_LABELS = {
+    llm: '默认 LLM', agent: '检索 Agent', entities: '实体抽取', fallback: '提取兜底',
+    vision: '图片理解', embedding: '语义嵌入'
+  };
+
+  const DEFAULTS = {
+    db_path: '~/.semdex/index.db',
+    folders: [],
+    exclude: [],
+    max_file_mb: 50,
+    watch_debounce_sec: 1.5,
+    watch_reconcile_sec: 86400,
+    chunk_size: 800,
+    chunk_overlap: 100,
+    models: {},
+    ocr: {
+      enabled: false, provider: 'tesseract', command: 'tesseract', pdf_renderer: 'pdftoppm',
+      languages: 'eng+chi_sim', dpi: 200, endpoint: '', response_path: '', timeout_sec: 180
+    },
+    asr: {
+      enabled: false, provider: 'faster_whisper', model: 'base', device: 'auto', compute_type: 'int8',
+      base_url: '', endpoint: '', language: '', response_path: '', timeout_sec: 180
+    },
+    entities: { enabled: false, max_chars: 12000, max_per_file: 32 },
+    agent: { max_steps: 6, max_results: 12 },
+    agent_fallback: { enabled: false, max_bytes: 262144 }
+  };
+
+  function toText(value, fallback = '') {
+    return value === undefined || value === null ? fallback : String(value);
+  }
+
+  function normalizeSettings(raw) {
+    const source = raw && typeof raw === 'object' ? raw : {};
+    const models = source.models && typeof source.models === 'object' ? source.models : {};
+    return {
+      ...DEFAULTS,
+      ...source,
+      folders: Array.isArray(source.folders) ? source.folders : [],
+      exclude: Array.isArray(source.exclude) ? source.exclude : [],
+      models,
+      ocr: { ...DEFAULTS.ocr, ...(source.ocr || {}) },
+      asr: { ...DEFAULTS.asr, ...(source.asr || {}) },
+      entities: { ...DEFAULTS.entities, ...(source.entities || {}) },
+      agent: { ...DEFAULTS.agent, ...(source.agent || {}) },
+      agent_fallback: { ...DEFAULTS.agent_fallback, ...(source.agent_fallback || {}) }
+    };
+  }
+
+  function setInputValue(id, value) {
+    const element = document.getElementById(id);
+    if (element) element.value = toText(value);
+  }
+
+  function setChecked(id, value) {
+    const element = document.getElementById(id);
+    if (element) element.checked = Boolean(value);
+  }
+
+  function splitList(value) {
+    return toText(value).split(/[\n,]/).map(item => item.trim()).filter(Boolean);
+  }
+
+  function numberValue(id, fallback, minimum = 0) {
+    const raw = document.getElementById(id).value.trim();
+    if (!raw) return fallback;
+    const value = Number(raw);
+    return Number.isFinite(value) ? Math.max(minimum, value) : fallback;
+  }
+
+  function valueOf(id) {
+    return document.getElementById(id).value.trim();
+  }
+
+  function showToast(message, isError = false) {
+    window.clearTimeout(state.toastTimer);
+    toastElement.textContent = message;
+    toastElement.classList.toggle('error', isError);
+    toastElement.classList.add('show');
+    state.toastTimer = window.setTimeout(() => toastElement.classList.remove('show'), 3600);
+  }
+
+  function setConnection(message, tone = '') {
+    connectionState.textContent = message;
+    connectionState.className = `connection-state${tone ? ` ${tone}` : ''}`;
+  }
+
+  function markDirty() {
+    if (state.hydrating || state.saving || state.dirty) return;
+    state.dirty = true;
+    savebarNote.textContent = '有未保存的更改';
+    setConnection('有未保存的更改', 'dirty');
+  }
+
+  function markClean(message = '设置已保存') {
+    state.dirty = false;
+    savebarNote.textContent = '设置已保存';
+    setConnection(message, 'saved');
+  }
+
+  function folderPaths() {
+    return Array.from(document.querySelectorAll('.folder-path'))
+      .map(input => input.value.trim())
+      .filter(Boolean);
+  }
+
+  function renderFolders(folders) {
+    const list = $('#folderList');
+    list.replaceChildren();
+    const paths = Array.from(new Set((Array.isArray(folders) ? folders : []).map(path => toText(path).trim()).filter(Boolean)));
+
+    if (!paths.length) {
+      const empty = document.createElement('div');
+      empty.className = 'empty-folders';
+      empty.textContent = '尚未添加索引目录';
+      list.append(empty);
+      return;
+    }
+
+    paths.forEach(path => {
+      const row = document.createElement('div');
+      row.className = 'folder-row';
+
+      const input = document.createElement('input');
+      input.className = 'folder-path';
+      input.type = 'text';
+      input.value = path;
+      input.spellcheck = false;
+      input.autocomplete = 'off';
+      input.setAttribute('aria-label', '索引目录');
+
+      const remove = document.createElement('button');
+      remove.className = 'icon-button';
+      remove.type = 'button';
+      remove.title = '移除此目录';
+      remove.setAttribute('aria-label', '移除此目录');
+      remove.textContent = '×';
+      remove.addEventListener('click', () => {
+        const remaining = folderPaths().filter(item => item !== input.value.trim());
+        renderFolders(remaining);
+        markDirty();
+      });
+
+      row.append(input, remove);
+      list.append(row);
+    });
+  }
+
+  function addFolders() {
+    const input = $('#newFolder');
+    const added = splitList(input.value);
+    if (!added.length) {
+      input.focus();
+      return;
+    }
+    const existing = folderPaths();
+    renderFolders([...existing, ...added]);
+    input.value = '';
+    markDirty();
+  }
+
+  function setKeyNote(element, configured) {
+    element.textContent = configured ? '已保存，留空不修改' : '留空不保存密钥';
+  }
+
+  function hydrateModels(models) {
+    modelCards.forEach(card => {
+      const key = card.dataset.model;
+      const cfg = models[key] && typeof models[key] === 'object' ? models[key] : {};
+      card.querySelector('[data-field="enabled"]').checked = Boolean(cfg.enabled);
+      card.querySelector('[data-field="base_url"]').value = toText(cfg.base_url);
+      card.querySelector('[data-field="model"]').value = toText(cfg.model);
+      const keyInput = card.querySelector('[data-field="api_key"]');
+      keyInput.value = '';
+      card.querySelector('[data-field="clear_api_key"]').checked = false;
+      setKeyNote(card.querySelector('.key-note'), Boolean(cfg.api_key_configured));
+    });
+  }
+
+  function syncProviderFields() {
+    const ocrLocalHttp = valueOf('ocrProvider') === 'local_http';
+    document.querySelectorAll('.ocr-tesseract').forEach(field => { field.hidden = ocrLocalHttp; });
+    document.querySelectorAll('.ocr-http').forEach(field => { field.hidden = !ocrLocalHttp; });
+
+    const asrRemote = valueOf('asrProvider') === 'openai_compatible';
+    document.querySelectorAll('.asr-local').forEach(field => { field.hidden = asrRemote; });
+    document.querySelectorAll('.asr-http').forEach(field => { field.hidden = !asrRemote; });
+  }
+
+  function hydrate(rawSettings) {
+    const settings = normalizeSettings(rawSettings);
+    state.hydrating = true;
+    setInputValue('dbPath', settings.db_path);
+    renderFolders(settings.folders);
+    setInputValue('exclude', Array.isArray(settings.exclude) ? settings.exclude.join(', ') : settings.exclude);
+    setInputValue('maxFileMb', settings.max_file_mb);
+    setInputValue('debounceSec', settings.watch_debounce_sec);
+    setInputValue('reconcileSec', settings.watch_reconcile_sec);
+    setInputValue('chunkSize', settings.chunk_size);
+    setInputValue('chunkOverlap', settings.chunk_overlap);
+
+    hydrateModels(settings.models);
+
+    setChecked('ocrEnabled', settings.ocr.enabled);
+    setInputValue('ocrProvider', settings.ocr.provider);
+    setInputValue('ocrCommand', settings.ocr.command);
+    setInputValue('ocrPdfRenderer', settings.ocr.pdf_renderer);
+    setInputValue('ocrLanguages', settings.ocr.languages);
+    setInputValue('ocrDpi', settings.ocr.dpi);
+    setInputValue('ocrEndpoint', settings.ocr.endpoint);
+    setInputValue('ocrResponsePath', settings.ocr.response_path);
+    setInputValue('ocrTimeoutSec', settings.ocr.timeout_sec);
+    $('#ocrApiKey').value = '';
+    $('#ocrClearApiKey').checked = false;
+    setKeyNote($('#ocrKeyNote'), Boolean(settings.ocr.api_key_configured));
+
+    setChecked('asrEnabled', settings.asr.enabled);
+    setInputValue('asrProvider', settings.asr.provider);
+    setInputValue('asrModel', settings.asr.model);
+    setInputValue('asrDevice', settings.asr.device);
+    setInputValue('asrComputeType', settings.asr.compute_type);
+    setInputValue('asrBaseUrl', settings.asr.base_url);
+    setInputValue('asrEndpoint', settings.asr.endpoint);
+    setInputValue('asrLanguage', settings.asr.language);
+    setInputValue('asrResponsePath', settings.asr.response_path);
+    setInputValue('asrTimeoutSec', settings.asr.timeout_sec);
+    $('#asrApiKey').value = '';
+    $('#asrClearApiKey').checked = false;
+    setKeyNote($('#asrKeyNote'), Boolean(settings.asr.api_key_configured));
+
+    setChecked('entitiesEnabled', settings.entities.enabled);
+    setInputValue('entitiesMaxChars', settings.entities.max_chars);
+    setInputValue('entitiesMaxPerFile', settings.entities.max_per_file);
+    setInputValue('agentMaxSteps', settings.agent.max_steps);
+    setInputValue('agentMaxResults', settings.agent.max_results);
+    setChecked('fallbackEnabled', settings.agent_fallback.enabled);
+    setInputValue('fallbackMaxBytes', settings.agent_fallback.max_bytes);
+    syncProviderFields();
+    state.hydrating = false;
+  }
+
+  function modelPayload(card) {
+    const output = {
+      enabled: card.querySelector('[data-field="enabled"]').checked,
+      base_url: card.querySelector('[data-field="base_url"]').value.trim(),
+      model: card.querySelector('[data-field="model"]').value.trim()
+    };
+    const clearApiKey = card.querySelector('[data-field="clear_api_key"]').checked;
+    const apiKey = card.querySelector('[data-field="api_key"]').value.trim();
+    if (clearApiKey) output.clear_api_key = true;
+    else if (apiKey) output.api_key = apiKey;
+    return output;
+  }
+
+  function buildPayload() {
+    const models = {};
+    modelCards.forEach(card => { models[card.dataset.model] = modelPayload(card); });
+
+    const ocr = {
+      enabled: $('#ocrEnabled').checked,
+      provider: valueOf('ocrProvider'),
+      command: valueOf('ocrCommand'),
+      pdf_renderer: valueOf('ocrPdfRenderer'),
+      languages: valueOf('ocrLanguages'),
+      dpi: numberValue('ocrDpi', DEFAULTS.ocr.dpi, 72),
+      endpoint: valueOf('ocrEndpoint'),
+      response_path: valueOf('ocrResponsePath'),
+      timeout_sec: numberValue('ocrTimeoutSec', DEFAULTS.ocr.timeout_sec, 1)
+    };
+    const ocrApiKey = $('#ocrApiKey').value.trim();
+    if ($('#ocrClearApiKey').checked) ocr.clear_api_key = true;
+    else if (ocrApiKey) ocr.api_key = ocrApiKey;
+
+    const asr = {
+      enabled: $('#asrEnabled').checked,
+      provider: valueOf('asrProvider'),
+      model: valueOf('asrModel'),
+      device: valueOf('asrDevice'),
+      compute_type: valueOf('asrComputeType'),
+      base_url: valueOf('asrBaseUrl'),
+      endpoint: valueOf('asrEndpoint'),
+      language: valueOf('asrLanguage'),
+      response_path: valueOf('asrResponsePath'),
+      timeout_sec: numberValue('asrTimeoutSec', DEFAULTS.asr.timeout_sec, 1)
+    };
+    const asrApiKey = $('#asrApiKey').value.trim();
+    if ($('#asrClearApiKey').checked) asr.clear_api_key = true;
+    else if (asrApiKey) asr.api_key = asrApiKey;
+
+    return {
+      db_path: valueOf('dbPath'),
+      folders: folderPaths(),
+      exclude: splitList($('#exclude').value),
+      max_file_mb: numberValue('maxFileMb', DEFAULTS.max_file_mb, 0),
+      watch_debounce_sec: numberValue('debounceSec', DEFAULTS.watch_debounce_sec, 0.1),
+      watch_reconcile_sec: numberValue('reconcileSec', DEFAULTS.watch_reconcile_sec, 0),
+      chunk_size: numberValue('chunkSize', DEFAULTS.chunk_size, 1),
+      chunk_overlap: numberValue('chunkOverlap', DEFAULTS.chunk_overlap, 0),
+      models,
+      ocr,
+      asr,
+      entities: {
+        enabled: $('#entitiesEnabled').checked,
+        max_chars: numberValue('entitiesMaxChars', DEFAULTS.entities.max_chars, 500),
+        max_per_file: numberValue('entitiesMaxPerFile', DEFAULTS.entities.max_per_file, 1)
+      },
+      agent: {
+        max_steps: numberValue('agentMaxSteps', DEFAULTS.agent.max_steps, 1),
+        max_results: numberValue('agentMaxResults', DEFAULTS.agent.max_results, 1)
+      },
+      agent_fallback: {
+        enabled: $('#fallbackEnabled').checked,
+        max_bytes: numberValue('fallbackMaxBytes', DEFAULTS.agent_fallback.max_bytes, 1024)
+      }
+    };
+  }
+
+  function validate(payload) {
+    if (!payload.db_path) return '请填写索引数据库路径';
+    if (!payload.folders.length) return '请至少添加一个索引目录';
+    if (payload.chunk_overlap >= payload.chunk_size) return '向量分块重叠必须小于分块大小';
+    for (const [key, model] of Object.entries(payload.models)) {
+      if (model.enabled && (!model.base_url || !model.model)) return `请补全${MODEL_LABELS[key] || key}模型的接口地址和模型名`;
+    }
+    if (payload.ocr.enabled && payload.ocr.provider === 'tesseract' && !payload.ocr.command) return '请填写 OCR 命令';
+    if (payload.ocr.enabled && payload.ocr.provider === 'local_http' && !payload.ocr.endpoint) return '请填写 OCR 接口地址';
+    if (payload.asr.enabled && payload.asr.provider === 'openai_compatible' && !payload.asr.base_url && !payload.asr.endpoint) return '请填写语音识别接口地址';
+    if (payload.asr.enabled && payload.asr.provider === 'faster_whisper' && !payload.asr.model) return '请填写本地 Whisper 模型';
+    return '';
+  }
+
+  async function responseData(response) {
+    try { return await response.json(); } catch (_) { return {}; }
+  }
+
+  function errorMessage(data, fallback) {
+    return toText(data.detail || data.error || data.message, fallback);
+  }
+
+  function setSaving(isSaving) {
+    state.saving = isSaving;
+    $('#saveButton').disabled = isSaving;
+    $('#saveIndexButton').disabled = isSaving;
+  }
+
+  async function saveSettings(startIndex) {
+    const payload = buildPayload();
+    const issue = validate(payload);
+    if (issue) {
+      showToast(issue, true);
+      return;
+    }
+
+    setSaving(true);
+    setConnection('正在保存设置');
+    try {
+      const response = await fetch('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ settings: payload })
+      });
+      const data = await responseData(response);
+      if (!response.ok || data.ok === false) throw new Error(errorMessage(data, '保存设置失败'));
+
+      if (data.settings) hydrate(data.settings);
+      else {
+        $('#ocrApiKey').value = '';
+        $('#asrApiKey').value = '';
+        modelCards.forEach(card => { card.querySelector('[data-field="api_key"]').value = ''; });
+      }
+      markClean();
+
+      if (!startIndex) {
+        showToast('设置已保存');
+        return;
+      }
+
+      setConnection('正在启动索引');
+      const indexResponse = await fetch('/api/index', { method: 'POST' });
+      const indexData = await responseData(indexResponse);
+      if (!indexResponse.ok || indexData.ok === false) throw new Error(errorMessage(indexData, '索引未启动'));
+      setConnection('设置已保存，索引已启动', 'saved');
+      showToast('设置已保存，索引已启动');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '请求失败';
+      setConnection(message, 'error');
+      showToast(message, true);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function loadSettings() {
+    try {
+      const response = await fetch('/api/settings', { cache: 'no-store' });
+      const data = await responseData(response);
+      if (!response.ok || data.ok === false || !data.settings) throw new Error(errorMessage(data, '无法加载设置'));
+      hydrate(data.settings);
+      markClean('设置已加载');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '无法连接服务';
+      setConnection(message, 'error');
+      showToast(message, true);
+    }
+  }
+
+  form.addEventListener('input', event => {
+    if (event.target !== $('#newFolder')) markDirty();
+  });
+  form.addEventListener('change', event => {
+    if (event.target === $('#ocrProvider') || event.target === $('#asrProvider')) syncProviderFields();
+    markDirty();
+  });
+  $('#addFolder').addEventListener('click', addFolders);
+  $('#newFolder').addEventListener('keydown', event => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      addFolders();
+    }
+  });
+  $('#saveButton').addEventListener('click', () => saveSettings(false));
+  $('#saveIndexButton').addEventListener('click', () => saveSettings(true));
+  window.addEventListener('beforeunload', event => {
+    if (!state.dirty) return;
+    event.preventDefault();
+    event.returnValue = '';
+  });
+
+  syncProviderFields();
+  loadSettings();
+})();
+</script>
+</body>
+</html>

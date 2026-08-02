@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Semdex 本地文件索引</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --card: #ffffff; --text: #1a1d21; --muted: #6b7280;
+    --accent: #2563eb; --accent-soft: #dbeafe; --border: #e5e7eb;
+    --mark: #fde68a; --ok: #16a34a; --warn: #d97706; --err: #dc2626;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111418; --card: #1a1f26; --text: #e7eaee; --muted: #9aa3af;
+      --accent: #60a5fa; --accent-soft: #1e3a5f; --border: #2a313b;
+      --mark: #7c5e10;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue", sans-serif;
+  }
+  .wrap { max-width: 780px; margin: 0 auto; padding: 32px 20px 80px; }
+  header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 6px; }
+  h1 { font-size: 22px; margin: 0; }
+  .sub { color: var(--muted); font-size: 13px; }
+  .settings-link { margin-left: auto; color: var(--accent); font-size: 13px; text-decoration: none; }
+  .settings-link:hover { text-decoration: underline; }
+  .statusbar {
+    display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+    margin: 14px 0 22px; font-size: 13px; color: var(--muted);
+  }
+  .chip {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 999px; padding: 3px 10px;
+  }
+  .chip b { color: var(--text); font-weight: 600; }
+  .chip.warn b { color: var(--warn); }
+  .chip.err b { color: var(--err); }
+  button {
+    font: inherit; border: 1px solid var(--border); background: var(--card);
+    color: var(--text); border-radius: 8px; padding: 5px 12px; cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); color: var(--accent); }
+  button:disabled { opacity: .5; cursor: default; }
+  .searchbox {
+    display: flex; gap: 10px; position: sticky; top: 12px; z-index: 5;
+  }
+  #q {
+    flex: 1; font: inherit; font-size: 16px; padding: 12px 16px;
+    border: 1px solid var(--border); border-radius: 12px;
+    background: var(--card); color: var(--text); outline: none;
+    box-shadow: 0 1px 6px rgba(0,0,0,.06);
+  }
+  #q:focus { border-color: var(--accent); }
+  .modes { display: flex; gap: 6px; margin: 12px 0 20px; }
+  .mode {
+    font-size: 13px; padding: 4px 12px; border-radius: 999px;
+    border: 1px solid var(--border); background: var(--card);
+    cursor: pointer; color: var(--muted);
+  }
+  .mode.active { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+  .card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 8px; padding: 14px 16px; margin-bottom: 12px;
+  }
+  .card .name { font-weight: 600; font-size: 15px; }
+  .card .path { color: var(--muted); font-size: 12px; margin: 3px 0 8px; word-break: break-all; }
+  .card .snippet { font-size: 13.5px; line-height: 1.65; word-break: break-word; }
+  .card mark { background: var(--mark); border-radius: 3px; padding: 0 1px; color: inherit; }
+  .card .actions { display: flex; gap: 8px; margin-top: 10px; }
+  .card .actions button { font-size: 12px; padding: 3px 10px; }
+  .card pre {
+    white-space: pre-wrap; word-break: break-word; font-size: 12.5px;
+    background: var(--bg); border-radius: 8px; padding: 10px;
+    max-height: 320px; overflow: auto;
+  }
+  .empty { text-align: center; color: var(--muted); padding: 48px 0; font-size: 14px; }
+  .answer { line-height: 1.6; margin-bottom: 14px; white-space: pre-wrap; }
+  .toast {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    background: var(--err); color: #fff; padding: 8px 18px; border-radius: 8px;
+    font-size: 13px; opacity: 0; transition: opacity .25s; pointer-events: none;
+  }
+  .toast.show { opacity: 1; }
+  .spin {
+    display: inline-block; width: 12px; height: 12px; border-radius: 50%;
+    border: 2px solid var(--accent); border-top-color: transparent;
+    animation: spin .8s linear infinite; vertical-align: -2px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Semdex</h1>
+    <span class="sub">本地文件语义索引</span>
+    <a class="settings-link" href="/settings">设置</a>
+  </header>
+  <div class="statusbar" id="statusbar">加载状态…</div>
+
+  <div class="searchbox">
+    <input id="q" type="search" placeholder="搜索文件名或内容，回车或停顿即搜…" autofocus autocomplete="off">
+  </div>
+  <div class="modes" id="modes">
+    <span class="mode active" data-mode="hybrid">混合</span>
+    <span class="mode" data-mode="fulltext">关键词</span>
+    <span class="mode" data-mode="semantic">语义</span>
+    <span class="mode" data-mode="ask">问答</span>
+  </div>
+
+  <div id="results"><div class="empty">输入关键词开始搜索</div></div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+let mode = 'hybrid', timer = null, requestId = 0;
+
+function esc(s) {
+  return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function highlight(text, query) {
+  let html = esc(text);
+  const terms = query.split(/\s+/).filter(t => t.length > 0)
+    .sort((a, b) => b.length - a.length);
+  for (const t of terms) {
+    const safe = esc(t).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    html = html.replace(new RegExp(safe, 'gi'), m => `<mark>${m}</mark>`);
+  }
+  return html;
+}
+function toast(msg) {
+  const el = $('#toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 3000);
+}
+function fmtDate(ts) {
+  if (!ts) return '';
+  const d = new Date(ts * 1000);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+async function refreshStatus() {
+  try {
+    const r = await fetch('/api/status');
+    const s = await r.json();
+    const st = s.files.by_status || {};
+    const m = s.models;
+    const parts = [
+      `<span class="chip">文件 <b>${s.files.total}</b></span>`,
+      `<span class="chip">已索引 <b>${st.done || 0}</b></span>`,
+    ];
+    if (st.pending) parts.push(`<span class="chip">待索引 <b>${st.pending}</b></span>`);
+    if (st.waiting_model) parts.push(`<span class="chip warn">等待模型 <b>${st.waiting_model}</b></span>`);
+    if (st.waiting_capability) parts.push(`<span class="chip warn">等待本地能力 <b>${st.waiting_capability}</b></span>`);
+    if (st.too_large) parts.push(`<span class="chip warn">超过大小限制 <b>${st.too_large}</b></span>`);
+    if (st.failed) parts.push(`<span class="chip err">失败 <b>${st.failed}</b></span>`);
+    const semanticState = s.embedding_rebuild_required ? '需重建' : (m.embedding ? '开' : '关');
+    parts.push(`<span class="chip${s.embedding_rebuild_required ? ' warn' : ''}">语义搜索 <b>${semanticState}</b></span>`);
+    parts.push(`<span class="chip">图片识别 <b>${m.vision ? '开' : '关'}</b></span>`);
+    if (s.files.entities) parts.push(`<span class="chip">实体 <b>${s.files.entities}</b></span>`);
+    if (s.indexing) {
+      parts.push(`<span class="chip"><span class="spin"></span> 索引中…</span>`);
+      setTimeout(refreshStatus, 2000);
+    } else {
+      parts.push(`<button id="reindex">重新索引</button>`);
+      parts.push(`<button id="rebuild">完整重建</button>`);
+    }
+    $('#statusbar').innerHTML = parts.join('');
+    const btn = $('#reindex');
+    if (btn) btn.onclick = async () => {
+      btn.disabled = true;
+      const r = await fetch('/api/index', {method: 'POST'});
+      if (!r.ok) toast((await r.json()).detail || '启动索引失败');
+      setTimeout(refreshStatus, 500);
+    };
+    const rebuild = $('#rebuild');
+    if (rebuild) rebuild.onclick = async () => {
+      if (!confirm('完整重建会重新提取全部已索引文件，可能需要较长时间。继续吗？')) return;
+      rebuild.disabled = true;
+      const r = await fetch('/api/rebuild', {method: 'POST'});
+      if (!r.ok) toast((await r.json()).detail || '启动完整重建失败');
+      setTimeout(refreshStatus, 500);
+    };
+  } catch (e) {
+    $('#statusbar').innerHTML = '<span class="chip err"><b>无法连接服务</b></span>';
+  }
+}
+
+async function doSearch() {
+  const q = $('#q').value.trim();
+  const currentRequest = ++requestId;
+  if (!q) {
+    $('#results').innerHTML = '<div class="empty">输入关键词开始搜索</div>';
+    return;
+  }
+  const endpoint = mode === 'ask' ? '/api/ask' : '/api/search';
+  const params = mode === 'ask'
+    ? `q=${encodeURIComponent(q)}`
+    : `q=${encodeURIComponent(q)}&mode=${mode}&limit=30`;
+  let r, data;
+  try {
+    r = await fetch(`${endpoint}?${params}`);
+    data = await r.json();
+  } catch (e) {
+    if (currentRequest === requestId) toast('请求失败');
+    return;
+  }
+  if (currentRequest !== requestId) return; // 过期响应
+  if (!data.ok) {
+    const message = data.error || '搜索失败';
+    $('#results').innerHTML = `<div class="empty">${esc(message)}</div>`;
+    return;
+  }
+  const answer = mode === 'ask' && data.answer
+    ? `<div class="card answer">${esc(data.answer)}</div>` : '';
+  if (!data.hits.length) {
+    $('#results').innerHTML = answer + '<div class="empty">没有找到匹配的文件</div>';
+    return;
+  }
+  $('#results').innerHTML = answer + data.hits.map(h => `
+    <div class="card" data-id="${h.file_id}" data-path="${esc(h.path)}">
+      <div class="name">${highlight(h.filename, q)}</div>
+      <div class="path">${esc(h.path)} · ${fmtDate(h.mtime)}</div>
+      <div class="snippet">${highlight(h.snippet || '', q)}</div>
+      <div class="actions">
+        <button data-act="open">打开</button>
+        <button data-act="reveal">在访达中显示</button>
+        <button data-act="content">查看全文</button>
+      </div>
+      <div class="fulltext"></div>
+    </div>`).join('');
+}
+
+$('#results').addEventListener('click', async e => {
+  const btn = e.target.closest('button[data-act]');
+  if (!btn) return;
+  const card = btn.closest('.card');
+  const act = btn.dataset.act;
+  if (act === 'open' || act === 'reveal') {
+    const r = await fetch('/api/open', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({path: card.dataset.path, reveal: act === 'reveal'})
+    });
+    if (!r.ok) toast((await r.json()).detail || '打开失败');
+  } else if (act === 'content') {
+    const box = card.querySelector('.fulltext');
+    if (box.innerHTML) { box.innerHTML = ''; btn.textContent = '查看全文'; return; }
+    const r = await fetch(`/api/content?file_id=${card.dataset.id}`);
+    const data = await r.json();
+    box.innerHTML = `<pre>${esc(data.text || '（无内容）')}</pre>`;
+    btn.textContent = '收起全文';
+  }
+});
+
+$('#q').addEventListener('input', () => {
+  clearTimeout(timer);
+  timer = setTimeout(doSearch, 280);
+});
+$('#q').addEventListener('keydown', e => {
+  if (e.key === 'Enter') { clearTimeout(timer); doSearch(); }
+});
+$('#modes').addEventListener('click', e => {
+  const el = e.target.closest('.mode');
+  if (!el) return;
+  document.querySelectorAll('.mode').forEach(m => m.classList.remove('active'));
+  el.classList.add('active');
+  mode = el.dataset.mode;
+  doSearch();
+});
+
+refreshStatus();
+</script>
+</body>
+</html>
