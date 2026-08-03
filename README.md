@@ -44,13 +44,13 @@ Semdex（**Sem**antic in**dex**）是一个本地文件语义索引系统：监�
 - ✅ **实体与关系**：可选 LLM 为已索引文件抽取人名、项目、机构、日期、地点、标签，支持按实体反查文件
 - ✅ **实时文件监听**：`semdex watch` 通过 macOS FSEvents / Linux inotify / Windows 原生观察器触发防抖增量索引；默认每日全量对账并重试失败项，可配置或关闭
 - ✅ **CLI**（`--json` 结构化输出 + 稳定退出码，方便外部程序/脚本接入）
-- ✅ **Web 界面与设置页**：即输即搜、问答模式、命中高亮、查看完整提取全文、打开文件/访达定位、一键重建；设置页支持多目录、独立模型、OCR/ASR 提供方和功能开关
+- ✅ **跨平台原生桌面界面与 WebUI**：两套界面均支持即输即搜、问答、全文查看、打开/定位文件、重新索引/完整重建，以及完整的目录、模型、OCR、ASR 与功能设置；桌面界面在 macOS / Windows / Linux 使用各自文件管理器
 - ✅ **REST API**：Web 界面用的接口全部开放，可被其他程序直接调用
 
 ## 当前边界
 
 - OCR 可使用本机 Tesseract，也可对接满足 multipart/JSON 协议的本地 HTTP 服务（例如用 PaddleOCR 包一层本地接口）；扫描 PDF 仍需 Poppler 的 `pdftoppm`。
-- ASR 可使用 `uv sync --extra asr` 安装的 faster-whisper，也可对接 OpenAI 兼容的本地 Whisper 转写接口。未安装或服务不在线时文件会进入 `waiting_capability`，恢复后重跑即可。
+- ASR 可通过 `python3 "Start Semdex.py" --with-asr --sync-only` 安装 faster-whisper，也可对接 OpenAI 兼容的本地 Whisper 转写接口。未安装或服务不在线时文件会进入 `waiting_capability`，恢复后重跑即可。
 - legacy Office 需要本机 LibreOffice；未知二进制格式不会执行任意命令，建议配置专用脚本提取器。
 - 当前向量检索使用 NumPy 暴力余弦，适合万级 chunk；更大规模可再接入 sqlite-vec，不影响现有索引格式。自部署 embedding 服务需提供 OpenAI 兼容的 `/embeddings` 接口；当前没有 OCR 那样的任意 multipart HTTP 向量适配器。
 
@@ -60,8 +60,7 @@ Semdex（**Sem**antic in**dex**）是一个本地文件语义索引系统：监�
 
 ```bash
 cd ~/Desktop/Semdex
-uv sync                      # 安装依赖（全部落在项目内，见下"项目自包含"）
-uv run semdex serve          # 首次会生成默认配置并打开 Web 界面
+python3 "Start Semdex.py" --web  # 安装依赖并打开 WebUI（数据和下载都在项目内）
                              # 在“设置”中添加目录后，点“保存并开始索引”
 ```
 
@@ -73,6 +72,18 @@ uv run semdex search "地铁"   # 命令行搜索
 uv run semdex ask "上个月和张三有关的 PDF 在哪"  # 自然语言问答（需启用 LLM）
 uv run semdex watch          # 实时监听并增量索引
 ```
+
+### 原生桌面界面
+
+macOS 上直接双击项目根目录的 `Start Semdex.command`。它会在项目内安装 GUI 依赖并打开原生桌面界面，不需要手动启动服务。
+
+Windows / Linux 或希望从终端启动时（Windows 可将 `python3` 换成 `py`）：
+
+```bash
+python3 "Start Semdex.py"
+```
+
+桌面界面与 WebUI 共用同一套配置和索引：搜索（混合 / 关键词 / 语义 / 问答）、全文、打开/定位、重新索引、完整重建，以及 WebUI 设置页中的全部设置项均可直接使用。桌面版不启动 HTTP 服务；Windows 使用资源管理器、Linux 打开所在目录作为“定位文件”的降级行为。
 
 也可以先执行 `uv run semdex init`，手工编辑配置文件的 `[watch] folders` 后再运行上述命令。网页右上角的“设置”支持添加一个或多个索引目录，按需开启模型、OCR、ASR 和实体/兜底功能。完整操作和本地服务协议见《[使用说明.md](使用说明.md)》。
 
@@ -124,7 +135,7 @@ uv run semdex entities # 给已有正文补抽实体（启用 [entities] 后）
 
 | 模块 | 职责 |
 |---|---|
-| `config.py` | TOML 配置（`~/.semdex/config.toml`，`-c` / `SEMDEX_CONFIG` 可覆盖） |
+| `config.py` | TOML 配置（项目内 `.semdex/config.toml`，`-c` / `SEMDEX_CONFIG` 可覆盖） |
 | `scanner.py` | 遍历监控文件夹，排除规则/大小上限，两级变化判定，清理消失文件 |
 | `extractors/` | 内容提取路由：自定义脚本规则优先，其次内置扩展名映射 |
 | `modelclient.py` | OpenAI 兼容模型能力封装，按用途选择不同 LLM / 视觉 / embedding |
@@ -134,7 +145,7 @@ uv run semdex entities # 给已有正文补抽实体（启用 [entities] 后）
 | `agent.py` | 受限工具调用的自然语言检索，不允许任意文件系统或 shell 工具 |
 | `watcher.py` | 跨平台事件监听、防抖后复用同一增量扫描管线 |
 | `db.py` | SQLite 存储层（WAL、外键级联、FTS5、向量 BLOB） |
-| `cli.py` / `web/` | 两个薄壳入口，共用同一套核心 |
+| `cli.py` / `gui.py` / `web/` | CLI、原生桌面 GUI 与 WebUI 三个薄壳，共用同一套核心 |
 
 ### 文件状态机
 
@@ -210,18 +221,31 @@ uv run semdex entities --json   # 补抽实体关系
 
 ## 项目自包含（方便整体迁移）
 
-依赖环境和下载缓存**全部落在项目文件夹内**，不污染系统目录：
+Semdex 自己的依赖环境、索引、临时文件和可选 Whisper 下载都默认落在项目文件夹内：
 
-- `.venv/` —— Python 虚拟环境（uv sync 生成）
-- `.uv-cache/` —— uv 下载缓存（`pyproject.toml` 里 `[tool.uv] cache-dir` 指定）
-
-整个 `Semdex/` 文件夹可以直接搬到外置硬盘。注意 `.venv` 里记录了绝对路径，**搬家后在新位置执行一次**：
-
-```bash
-rm -rf .venv && uv sync
+```text
+Semdex/
+  .uv-python/           uv 下载和管理的 Python 解释器（需要时）
+  .venv/                 Python 虚拟环境
+  .uv-cache/             uv / pip 下载缓存
+  .semdex/
+    config.toml          本地设置（权限 0600）
+    index.db*            SQLite 索引及 WAL/SHM
+    tmp/                 提取和 OCR 的受控临时文件
+    models/whisper/      faster-whisper 下载的模型
 ```
 
-索引数据库默认在 `~/.semdex/index.db`（配置里可改到任何位置，包括项目内或外置盘）。
+`Start Semdex.command`（macOS）和 `Start Semdex.py`（Windows / Linux / 终端）都会在调用 `uv sync` 前设置 uv 托管 Python、Hugging Face、Python 包缓存和临时目录环境变量到上述项目目录。运行 `semdex gui` 或 `semdex serve` 时，未显式覆盖的默认配置也使用同一目录。项目根目录、`.semdex/`、`.venv/`、`.uv-cache/` 和 `.uv-python/` 已在默认索引排除规则中，避免索引自身的数据。
+
+整个 `Semdex/` 文件夹可以直接搬到外置硬盘。注意 `.venv` 里记录了绝对路径，**搬家后在新位置通过启动器同步一次**：
+
+```bash
+python3 "Start Semdex.py" --sync-only
+```
+
+初始模板中的 `db_path`、`temp_dir` 和 `model_dir` 都相对 `.semdex/config.toml` 解析；复制整个项目到外置硬盘后会自动指向新位置。配置里可以改为绝对外部路径，也可以使用 `-c` / `SEMDEX_CONFIG` 指定独立配置。旧版本的 `~/.semdex/` 不会被自动移动或删除；需要继续使用旧索引时，显式通过 `-c ~/.semdex/config.toml` 指定即可。
+
+需要 ASR 时，使用 `python3 "Start Semdex.py" --with-asr --sync-only` 安装可选依赖。若刻意绕过启动器直接执行首次 `uv sync`，请先设置 `UV_PYTHON_INSTALL_DIR` 到项目内 `.uv-python/`，否则 uv 托管解释器会下载到用户目录。
 
 ## 测试
 

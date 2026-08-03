@@ -4,6 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from ..models import CapabilityNotConfigured, CapabilityUnavailable, ExtractError
+from ..paths import ensure_private_directory
 from ..remote import RemoteRequestError, RemoteResponseError, post_multipart_json
 from .base import ExtractContext, Extractor
 
@@ -14,7 +15,7 @@ class MediaExtractor(Extractor):
         ".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".opus",
         ".mp4", ".mov", ".mkv", ".webm", ".avi",
     )
-    _models: dict[tuple[str, str, str], object] = {}
+    _models: dict[tuple[str, str, str, str], object] = {}
 
     def _model(self, ctx: ExtractContext):
         cfg = ctx.config.asr
@@ -33,12 +34,16 @@ class MediaExtractor(Extractor):
                 "未安装 faster-whisper。执行 `uv sync --extra asr` 后重新运行 `semdex index`"
             ) from e
 
-        key = (cfg.model, cfg.device, cfg.compute_type)
+        download_root = ensure_private_directory(ctx.config.model_dir / "whisper")
+        key = (cfg.model, cfg.device, cfg.compute_type, str(download_root))
         model = self._models.get(key)
         if model is None:
             try:
                 model = WhisperModel(
-                    cfg.model, device=cfg.device, compute_type=cfg.compute_type
+                    cfg.model,
+                    device=cfg.device,
+                    compute_type=cfg.compute_type,
+                    download_root=str(download_root),
                 )
             except Exception as e:
                 raise CapabilityUnavailable(f"无法加载本地 Whisper 模型 {cfg.model}: {e}") from e

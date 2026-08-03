@@ -9,6 +9,7 @@ from ..models import (
     CapabilityNotConfigured, CapabilityUnavailable, ExtractError,
     ModelNotConfigured, ModelUnavailable,
 )
+from ..paths import ensure_private_directory
 from .base import ExtractContext, Extractor
 
 MAX_MEMBERS = 2_000
@@ -41,7 +42,10 @@ class ZipExtractor(Extractor):
         parts: list[str] = []
         try:
             infos = [info for info in archive.infolist() if not info.is_dir()]
-            with tempfile.TemporaryDirectory(prefix="semdex-zip-") as tmp:
+            with tempfile.TemporaryDirectory(
+                prefix="semdex-zip-",
+                dir=str(ensure_private_directory(ctx.config.temp_dir)),
+            ) as tmp:
                 temp_root = Path(tmp)
                 for index, info in enumerate(infos, 1):
                     budget["members"] += 1

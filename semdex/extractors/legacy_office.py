@@ -7,6 +7,7 @@ import tempfile
 from pathlib import Path
 
 from ..models import CapabilityUnavailable, ExtractError
+from ..paths import ensure_private_directory
 from .base import ExtractContext, Extractor
 
 CONVERTER_TIMEOUT = 180
@@ -29,11 +30,27 @@ class LegacyOfficeExtractor(Extractor):
         suffix = path.suffix.lower()
         target_suffix = {".doc": ".docx", ".xls": ".xlsx", ".ppt": ".pptx"}[suffix]
         converter = self._converter()
-        with tempfile.TemporaryDirectory(prefix="semdex-office-") as tmp:
+        with tempfile.TemporaryDirectory(
+            prefix="semdex-office-",
+            dir=str(ensure_private_directory(ctx.config.temp_dir)),
+        ) as tmp:
             outdir = Path(tmp)
+            # LibreOffice otherwise creates or updates a profile under the
+            # user's home directory even for a headless conversion.
+            profile_dir = outdir / "libreoffice-profile"
+            profile_dir.mkdir()
             try:
                 proc = subprocess.run(
-                    [converter, "--headless", "--convert-to", target_suffix[1:], "--outdir", str(outdir), str(path)],
+                    [
+                        converter,
+                        f"-env:UserInstallation={profile_dir.resolve().as_uri()}",
+                        "--headless",
+                        "--convert-to",
+                        target_suffix[1:],
+                        "--outdir",
+                        str(outdir),
+                        str(path),
+                    ],
                     capture_output=True,
                     text=True,
                     errors="replace",

@@ -58,6 +58,8 @@ def settings_dict(config: Config) -> dict[str, Any]:
 
     return {
         "db_path": str(config.db_path),
+        "temp_dir": str(config.temp_dir),
+        "model_dir": str(config.model_dir),
         "folders": [str(folder) for folder in config.folders],
         "exclude": list(config.exclude),
         "max_file_mb": config.max_file_mb,
@@ -165,11 +167,17 @@ def _setting(part: dict[str, Any], key: str, current: Any) -> Any:
     return part[key] if key in part else current
 
 
-def _path(value: object, label: str, *, directory: bool = False) -> Path:
+def _path(
+    value: object,
+    label: str,
+    *,
+    directory: bool = False,
+    base_dir: Path | None = None,
+) -> Path:
     text = _string(value, label, allow_empty=False)
     path = Path(text).expanduser()
     if not path.is_absolute():
-        path = path.resolve(strict=False)
+        path = ((base_dir or Path.cwd()) / path).resolve(strict=False)
     if directory and not path.is_dir():
         raise ValueError(f"{label} 不存在或不是目录: {path}")
     return path
@@ -245,7 +253,12 @@ def _build_config(current: Config, payload: object) -> Config:
     agent = _mapping(data.get("agent"), "agent")
     fallback = _mapping(data.get("agent_fallback"), "agent_fallback")
 
-    db_path = _path(_setting(data, "db_path", str(current.db_path)), "索引数据库")
+    config_dir = current.config_path.parent if current.config_path else None
+    db_path = _path(
+        _setting(data, "db_path", str(current.db_path)),
+        "索引数据库",
+        base_dir=config_dir,
+    )
     folders = _folder_list(_setting(data, "folders", [str(folder) for folder in current.folders]))
     exclude = _string_list(_setting(data, "exclude", current.exclude), "排除规则")
     max_file_mb = _integer(_setting(data, "max_file_mb", current.max_file_mb), "单文件大小上限", 0)
@@ -277,6 +290,7 @@ def _build_config(current: Config, payload: object) -> Config:
         api_key=current.ocr.api_key,
         response_path=_string(_setting(ocr, "response_path", current.ocr.response_path), "ocr.response_path", allow_empty=False),
         timeout_sec=_integer(_setting(ocr, "timeout_sec", current.ocr.timeout_sec), "ocr.timeout_sec", 1),
+        temp_dir=current.temp_dir,
     )
     if "api_key" in ocr:
         candidate = _string(ocr["api_key"], "ocr.api_key")
@@ -316,6 +330,8 @@ def _build_config(current: Config, payload: object) -> Config:
 
     return Config(
         db_path=db_path,
+        temp_dir=current.temp_dir,
+        model_dir=current.model_dir,
         folders=folders,
         exclude=exclude,
         max_file_mb=max_file_mb,
@@ -365,6 +381,16 @@ def _toml_list(values: list[str]) -> str:
     return "[" + ", ".join(_toml_string(item) for item in values) + "]"
 
 
+def _storage_path_for_toml(path: Path, config: Config) -> str:
+    """Keep managed storage relative so a copied bundle remains self-contained."""
+    if config.config_path is None:
+        return str(path)
+    try:
+        return str(path.resolve(strict=False).relative_to(config.config_path.parent.resolve(strict=False)))
+    except ValueError:
+        return str(path)
+
+
 def _model_toml(name: str, cfg: ModelCfg) -> list[str]:
     return [
         f"[models.{name}]",
@@ -381,7 +407,9 @@ def _to_toml(config: Config) -> str:
         "# Semdex 配置文件。此文件可由网页设置页或手工编辑。",
         "",
         "[storage]",
-        f"db_path = {_toml_string(str(config.db_path))}",
+        f"db_path = {_toml_string(_storage_path_for_toml(config.db_path, config))}",
+        f"temp_dir = {_toml_string(_storage_path_for_toml(config.temp_dir, config))}",
+        f"model_dir = {_toml_string(_storage_path_for_toml(config.model_dir, config))}",
         "",
         "[watch]",
         f"folders = {_toml_list([str(folder) for folder in config.folders])}",

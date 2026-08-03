@@ -13,6 +13,7 @@ from .config import Config
 from .db import Database
 from .extractors import ExtractContext, resolve
 from .modelclient import ModelClient, embedding_identity
+from .paths import ensure_private_directory
 from .safepath import configured_watch_roots, open_regular_file_beneath_root
 from .models import (
     STATUS_DONE, STATUS_FAILED, STATUS_PENDING, STATUS_SKIPPED,
@@ -76,7 +77,10 @@ def _trusted_source_snapshot(path: Path, config: Config) -> Iterator[tuple[Path 
 
     max_bytes = config.max_file_mb * 1024 * 1024
     try:
-        temp_dir = tempfile.TemporaryDirectory(prefix="semdex-source-")
+        temp_dir = tempfile.TemporaryDirectory(
+            prefix="semdex-source-",
+            dir=str(ensure_private_directory(config.temp_dir)),
+        )
     except OSError as e:
         yield None, f"无法创建安全读取快照: {e}"
         os.close(source_fd)

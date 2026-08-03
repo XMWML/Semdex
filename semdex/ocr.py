@@ -13,6 +13,7 @@ from pathlib import Path
 
 from .config import OcrCfg
 from .models import CapabilityNotConfigured, CapabilityUnavailable, ExtractError
+from .paths import ensure_private_directory
 from .remote import RemoteRequestError, RemoteResponseError, post_multipart_json
 
 OCR_TIMEOUT_SECONDS = 180
@@ -116,7 +117,10 @@ def ocr_pdf(path: Path, cfg: OcrCfg) -> str:
     """Render a scanned PDF page-by-page and run OCR on the generated images."""
     _require_ocr(cfg)
     renderer = _find_command(cfg.pdf_renderer, "PDF 渲染器")
-    with tempfile.TemporaryDirectory(prefix="semdex-ocr-") as tmp:
+    with tempfile.TemporaryDirectory(
+        prefix="semdex-ocr-",
+        dir=str(ensure_private_directory(cfg.temp_dir)),
+    ) as tmp:
         prefix = Path(tmp) / "page"
         _run(
             [renderer, "-r", str(cfg.dpi), "-png", str(path), str(prefix)],

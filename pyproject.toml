@@ -1,6 +1,6 @@
 [project]
 name = "semdex"
-version = "0.2.0"
+version = "0.3.0"
 description = "本地文件语义索引系统——给现有文件系统建一层可搜索的影子索引"
 requires-python = ">=3.11"
 dependencies = [
@@ -17,6 +17,7 @@ dependencies = [
 
 [project.optional-dependencies]
 asr = ["faster-whisper>=1.1"]
+gui = ["PySide6-Essentials>=6.8"]
 
 [project.scripts]
 semdex = "semdex.cli:main"

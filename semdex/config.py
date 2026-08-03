@@ -1,4 +1,4 @@
-"""配置加载。默认路径 ~/.semdex/config.toml，`semdex init` 生成模板。"""
+"""Configuration loading for the portable, project-local Semdex state."""
 from __future__ import annotations
 
 import os
@@ -6,12 +6,22 @@ import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
-DEFAULT_CONFIG_PATH = Path("~/.semdex/config.toml").expanduser()
-DEFAULT_DB_PATH = Path("~/.semdex/index.db").expanduser()
+from .paths import (
+    default_config_path,
+    default_database_path,
+    default_model_dir,
+    default_temp_dir,
+    ensure_private_directory,
+)
+
+DEFAULT_CONFIG_PATH = default_config_path()
+DEFAULT_DB_PATH = default_database_path()
+DEFAULT_TEMP_DIR = default_temp_dir()
+DEFAULT_MODEL_DIR = default_model_dir()
 
 DEFAULT_EXCLUDE = [
     ".git", "node_modules", "__pycache__", ".venv", "venv",
-    ".DS_Store", "*.app", ".Trash", "*.pyc",
+    ".semdex", ".uv-cache", ".uv-python", ".pytest_cache", ".DS_Store", "*.app", ".Trash", "*.pyc",
 ]
 
 CONFIG_TEMPLATE = """\
@@ -19,7 +29,11 @@ CONFIG_TEMPLATE = """\
 # 修改后重新运行 `semdex index` 生效
 
 [storage]
-db_path = "~/.semdex/index.db"
+# Relative paths are resolved next to this config file, so copying the whole
+# Semdex folder to another disk keeps state and downloads with it.
+db_path = "index.db"
+temp_dir = "tmp"
+model_dir = "models"
 
 [watch]
 # 要索引的文件夹（绝对路径，~ 会被展开），可以写多个
@@ -27,7 +41,7 @@ folders = [
     # "~/Desktop/软考资料",
 ]
 # 排除规则：匹配任意一级目录名/文件名（fnmatch 通配符）
-exclude = [".git", "node_modules", "__pycache__", ".venv", "venv", ".DS_Store", "*.app", ".Trash", "*.pyc"]
+exclude = [".git", "node_modules", "__pycache__", ".venv", "venv", ".semdex", ".uv-cache", ".uv-python", ".pytest_cache", ".DS_Store", "*.app", ".Trash", "*.pyc"]
 # 超过此大小的文件跳过（MB）
 max_file_mb = 50
 # `semdex watch` 在文件事件稳定多久后启动一次增量索引
@@ -168,6 +182,7 @@ class OcrCfg:
     api_key: str = ""
     response_path: str = "text"
     timeout_sec: int = 180
+    temp_dir: Path = DEFAULT_TEMP_DIR
 
 
 @dataclass
@@ -207,6 +222,8 @@ class AgentFallbackCfg:
 @dataclass
 class Config:
     db_path: Path = DEFAULT_DB_PATH
+    temp_dir: Path = DEFAULT_TEMP_DIR
+    model_dir: Path = DEFAULT_MODEL_DIR
     folders: list[Path] = field(default_factory=list)
     exclude: list[str] = field(default_factory=lambda: list(DEFAULT_EXCLUDE))
     max_file_mb: int = 50
@@ -241,6 +258,7 @@ class Config:
             self.entities_model = _copy_model_cfg(self.llm)
         if self.fallback_model is None:
             self.fallback_model = _copy_model_cfg(self.llm)
+        self.ocr.temp_dir = self.temp_dir
 
 
 def _section(data: dict, name: str) -> dict:
@@ -339,12 +357,20 @@ def _asr_cfg(d: dict) -> AsrCfg:
     )
 
 
+def _storage_path(value: object, default: Path, config_dir: Path) -> Path:
+    """Resolve portable storage values relative to their config file."""
+    raw = default if value is None else Path(str(value)).expanduser()
+    if not raw.is_absolute():
+        raw = config_dir / raw
+    return raw.resolve(strict=False)
+
+
 def resolve_config_path(explicit: str | os.PathLike | None) -> Path:
     if explicit:
-        return Path(explicit).expanduser()
+        return Path(explicit).expanduser().resolve(strict=False)
     env = os.environ.get("SEMDEX_CONFIG")
     if env:
-        return Path(env).expanduser()
+        return Path(env).expanduser().resolve(strict=False)
     return DEFAULT_CONFIG_PATH
 
 
@@ -391,9 +417,16 @@ def load_config(path: str | os.PathLike | None = None) -> Config:
         _model_cfg(_section(models, "fallback"), "models.fallback")
         if "fallback" in models else _copy_model_cfg(llm)
     )
+    db_path = _storage_path(storage.get("db_path"), DEFAULT_DB_PATH, cfg_path.parent)
+    temp_dir = _storage_path(storage.get("temp_dir"), DEFAULT_TEMP_DIR, cfg_path.parent)
+    model_dir = _storage_path(storage.get("model_dir"), DEFAULT_MODEL_DIR, cfg_path.parent)
+    ocr_cfg = _ocr_cfg(ocr)
+    ocr_cfg.temp_dir = temp_dir
 
     return Config(
-        db_path=Path(storage.get("db_path", str(DEFAULT_DB_PATH))).expanduser(),
+        db_path=db_path,
+        temp_dir=temp_dir,
+        model_dir=model_dir,
         folders=[Path(p).expanduser() for p in watch.get("folders", [])],
         exclude=list(watch.get("exclude", DEFAULT_EXCLUDE)),
         max_file_mb=max(0, int(watch.get("max_file_mb", 50))),
@@ -408,7 +441,7 @@ def load_config(path: str | os.PathLike | None = None) -> Config:
         chunk_overlap=chunk_overlap,
         watch_debounce_sec=max(0.1, float(watch.get("debounce_sec", 1.5))),
         watch_reconcile_sec=max(0.0, float(watch.get("reconcile_sec", 86_400))),
-        ocr=_ocr_cfg(ocr),
+        ocr=ocr_cfg,
         asr=_asr_cfg(asr),
         entities=EntityCfg(
             enabled=bool(entities.get("enabled", False)),
@@ -429,11 +462,12 @@ def load_config(path: str | os.PathLike | None = None) -> Config:
 
 def write_default_config(path: str | os.PathLike | None = None) -> Path:
     cfg_path = resolve_config_path(path)
-    cfg_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     if cfg_path == DEFAULT_CONFIG_PATH:
-        # The template may contain an API key, so the default state directory
+        # The template may contain an API key, so the managed state directory
         # should not disclose its names or contents to other local accounts.
-        os.chmod(cfg_path.parent, 0o700)
+        ensure_private_directory(cfg_path.parent)
+    else:
+        cfg_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
     try:
         fd = os.open(cfg_path, flags, 0o600)

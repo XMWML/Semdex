@@ -223,6 +223,13 @@ def cmd_watch(args) -> int:
     return 0
 
 
+def cmd_gui(args) -> int:
+    """Launch the optional cross-platform native desktop interface."""
+    from .gui import run_gui
+
+    return run_gui(args.config)
+
+
 def cmd_config(args) -> int:
     path = resolve_config_path(args.config)
     print(f"配置文件路径: {path}")
@@ -278,7 +285,7 @@ def cmd_serve(args) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="semdex", description="本地文件语义索引系统")
-    p.add_argument("-c", "--config", help="配置文件路径（默认 ~/.semdex/config.toml，或环境变量 SEMDEX_CONFIG）")
+    p.add_argument("-c", "--config", help="配置文件路径（默认项目内 .semdex/config.toml，或环境变量 SEMDEX_CONFIG）")
     p.add_argument("-V", "--version", action="version", version=f"semdex {__version__}")
     sub = p.add_subparsers(dest="command", required=True)
 
@@ -315,6 +322,9 @@ def build_parser() -> argparse.ArgumentParser:
 
     sp = sub.add_parser("watch", help="实时监听文件变化并增量索引")
     sp.set_defaults(func=cmd_watch)
+
+    sp = sub.add_parser("gui", help="启动跨平台原生桌面界面（需安装 gui 可选依赖）")
+    sp.set_defaults(func=cmd_gui)
 
     sp = sub.add_parser("status", help="查看索引状态")
     sp.add_argument("--json", action="store_true")
