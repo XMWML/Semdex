@@ -31,8 +31,8 @@ class SearchRequestGuard:
 def run_gui(config_path: str | None = None) -> int:
     """Start the native GUI and return its process exit code."""
     try:
-        from PySide6.QtCore import QObject, Qt, QTimer, Signal
-        from PySide6.QtGui import QAction
+        from PySide6.QtCore import QObject, Qt, QTimer, QUrl, Signal
+        from PySide6.QtGui import QAction, QDesktopServices
         from PySide6.QtWidgets import (
             QApplication,
             QButtonGroup,
@@ -85,11 +85,21 @@ def run_gui(config_path: str | None = None) -> int:
             ("vision", "图片理解"),
             ("embedding", "语义嵌入"),
         ]
+        MODEL_CAPABILITIES = {
+            "llm": "chat",
+            "agent": "chat",
+            "entities": "chat",
+            "fallback": "chat",
+            "vision": "vision",
+            "embedding": "embedding",
+        }
 
         def __init__(self, controller: DesktopController, parent: QWidget | None = None):
             super().__init__(parent)
             self.controller = controller
             self.start_after_save = False
+            self._model_catalog: dict[str, Any] = {}
+            self._model_bridges: list[TaskBridge] = []
             self.setWindowTitle("Semdex 设置")
             self.resize(880, 720)
 
@@ -111,6 +121,7 @@ def run_gui(config_path: str | None = None) -> int:
             self.save_index_button.clicked.connect(self.save_and_index)
             outer.addWidget(buttons)
             self.load_settings(controller.settings())
+            self.refresh_local_models()
 
         @staticmethod
         def _form_widget(layout: QFormLayout, label: str, widget: QWidget) -> QWidget:
@@ -130,6 +141,27 @@ def run_gui(config_path: str | None = None) -> int:
                 combo.addItem(value, value)
                 index = combo.count() - 1
             combo.setCurrentIndex(index)
+
+        @staticmethod
+        def _combo_value(combo: QComboBox) -> str:
+            value = combo.currentData()
+            if isinstance(value, str):
+                return value
+            return combo.currentText().strip()
+
+        @staticmethod
+        def _format_size(size: object) -> str:
+            try:
+                value = int(size)
+            except (TypeError, ValueError):
+                return ""
+            units = ("B", "KB", "MB", "GB", "TB")
+            amount = float(value)
+            for unit in units:
+                if amount < 1024 or unit == units[-1]:
+                    return f"{amount:.1f} {unit}" if unit != "B" else f"{value} B"
+                amount /= 1024
+            return str(value)
 
         def _scroll_tab(self) -> tuple[QWidget, QVBoxLayout]:
             page = QWidget()
@@ -202,7 +234,7 @@ def run_gui(config_path: str | None = None) -> int:
 
         def _build_models_tab(self) -> QWidget:
             page, layout = self._scroll_tab()
-            self.model_fields: dict[str, dict[str, QWidget]] = {}
+            self.model_fields: dict[str, dict[str, Any]] = {}
             grid = QGridLayout()
             grid.setHorizontalSpacing(12)
             grid.setVerticalSpacing(12)
@@ -210,29 +242,295 @@ def run_gui(config_path: str | None = None) -> int:
                 box = QGroupBox(label)
                 form = QFormLayout(box)
                 enabled = QCheckBox("启用")
+                mode = QComboBox()
+                mode.addItem("OpenAI API", "openai")
+                mode.addItem("本地模型", "local")
+                local_model = QComboBox()
+                local_model.addItem("未选择", "")
                 base_url = QLineEdit()
-                base_url.setPlaceholderText("http://localhost:1234/v1")
+                base_url.setPlaceholderText("https://api.openai.com/v1")
                 model = QLineEdit()
                 api_key = QLineEdit()
                 api_key.setEchoMode(QLineEdit.EchoMode.Password)
                 api_key.setPlaceholderText("留空以保留已保存的密钥")
                 clear = QCheckBox("删除已保存密钥")
                 self._form_widget(form, "", enabled)
+                self._form_widget(form, "来源", mode)
+                self._form_widget(form, "本地模型", local_model)
                 self._form_widget(form, "接口地址", base_url)
-                self._form_widget(form, "模型", model)
+                self._form_widget(form, "API 模型", model)
                 self._form_widget(form, "API Key", api_key)
                 self._form_widget(form, "", clear)
                 self.model_fields[name] = {
+                    "form": form,
                     "enabled": enabled,
+                    "mode": mode,
+                    "local_model": local_model,
                     "base_url": base_url,
                     "model": model,
                     "api_key": api_key,
                     "clear_api_key": clear,
+                    "api_widgets": (base_url, model, api_key, clear),
                 }
+                mode.currentIndexChanged.connect(
+                    lambda _index, purpose=name: self._sync_model_source_fields(purpose)
+                )
                 grid.addWidget(box, index // 2, index % 2)
             layout.addLayout(grid)
+
+            manager_box = QGroupBox("本地模型管理")
+            manager = QFormLayout(manager_box)
+            self.local_model_dir = QLineEdit()
+            self.local_model_dir.setReadOnly(True)
+            open_model_dir = QPushButton("打开模型目录")
+            model_dir_row = QWidget()
+            model_dir_layout = QHBoxLayout(model_dir_row)
+            model_dir_layout.setContentsMargins(0, 0, 0, 0)
+            model_dir_layout.addWidget(self.local_model_dir)
+            model_dir_layout.addWidget(open_model_dir)
+            self._form_widget(manager, "模型目录", model_dir_row)
+            self.local_runtime_status = QLabel()
+            self.local_runtime_status.setWordWrap(True)
+            self.local_runtime_status.setStyleSheet("color: palette(mid);")
+            self._form_widget(manager, "运行时", self.local_runtime_status)
+
+            self.local_models_tree = QTreeWidget()
+            self.local_models_tree.setColumnCount(5)
+            self.local_models_tree.setHeaderLabels(["模型", "格式", "大小", "能力", "状态"])
+            self.local_models_tree.setRootIsDecorated(False)
+            self.local_models_tree.setAlternatingRowColors(True)
+            self.local_models_tree.setMinimumHeight(170)
+            header = self.local_models_tree.header()
+            header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+            for column in range(1, 5):
+                header.setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
+            self._form_widget(manager, "可用模型", self.local_models_tree)
+
+            self.local_model_capability = QComboBox()
+            self.local_model_capability.addItem("聊天 / 文本", "chat")
+            self.local_model_capability.addItem("向量", "embedding")
+            self.local_model_capability.addItem("视觉", "vision")
+            self.local_model_capability.addItem("语音识别", "asr")
+            refresh_models = QPushButton("刷新")
+            load_model = QPushButton("加载到内存")
+            unload_model = QPushButton("卸载所选能力")
+            unload_all = QPushButton("全部卸载")
+            model_actions = QWidget()
+            model_actions_layout = QHBoxLayout(model_actions)
+            model_actions_layout.setContentsMargins(0, 0, 0, 0)
+            model_actions_layout.addWidget(self.local_model_capability)
+            model_actions_layout.addWidget(refresh_models)
+            model_actions_layout.addWidget(load_model)
+            model_actions_layout.addWidget(unload_model)
+            model_actions_layout.addWidget(unload_all)
+            self._form_widget(manager, "内存管理", model_actions)
+            self._model_manager_buttons = (refresh_models, load_model, unload_model, unload_all)
+            open_model_dir.clicked.connect(self.open_model_directory)
+            refresh_models.clicked.connect(lambda: self.refresh_local_models(show_errors=True))
+            load_model.clicked.connect(self.load_selected_local_model)
+            unload_model.clicked.connect(lambda: self.unload_selected_local_model(all_capabilities=False))
+            unload_all.clicked.connect(lambda: self.unload_selected_local_model(all_capabilities=True))
+            layout.addWidget(manager_box)
             layout.addStretch()
             return page
+
+        def _set_form_field_visible(self, form: QFormLayout, widget: QWidget, visible: bool) -> None:
+            widget.setVisible(visible)
+            label = form.labelForField(widget)
+            if label is not None:
+                label.setVisible(visible)
+
+        def _sync_model_source_fields(self, purpose: str) -> None:
+            fields = self.model_fields[purpose]
+            local = self._combo_value(fields["mode"]) == "local"
+            form = fields["form"]
+            self._set_form_field_visible(form, fields["local_model"], local)
+            for widget in fields["api_widgets"]:
+                self._set_form_field_visible(form, widget, not local)
+
+        def _sync_asr_provider_fields(self) -> None:
+            local = self._combo_value(self.asr_provider) == "local"
+            self._set_form_field_visible(self.asr_form, self.asr_local_model, local)
+            self._set_form_field_visible(self.asr_form, self.asr_local_backend, local)
+            for widget in self.asr_api_widgets:
+                self._set_form_field_visible(self.asr_form, widget, not local)
+
+        def _populate_local_model_combo(
+            self,
+            combo: QComboBox,
+            value: str,
+            capability: str,
+        ) -> None:
+            combo.blockSignals(True)
+            combo.clear()
+            combo.addItem("未选择", "")
+            for model in self._model_catalog.get("models", []):
+                if not isinstance(model, dict):
+                    continue
+                model_id = str(model.get("id", "")).strip()
+                if not model_id:
+                    continue
+                capabilities = model.get("capabilities", [])
+                if not isinstance(capabilities, list) or capability not in capabilities:
+                    continue
+                name = str(model.get("name", model_id))
+                model_format = str(model.get("format", "")).upper()
+                combo.addItem(f"{name} ({model_format})" if model_format else name, model_id)
+            self._set_combo(combo, value)
+            combo.blockSignals(False)
+
+        def _selected_local_model(self) -> dict[str, Any] | None:
+            item = self.local_models_tree.currentItem()
+            if item is None:
+                return None
+            value = item.data(0, Qt.ItemDataRole.UserRole)
+            return value if isinstance(value, dict) else None
+
+        def _set_model_manager_busy(self, busy: bool) -> None:
+            for button in self._model_manager_buttons:
+                button.setEnabled(not busy)
+
+        def _run_model_action(
+            self,
+            action: Callable[[], Any],
+            completed: Callable[[Any, str | None], None],
+        ) -> None:
+            bridge = TaskBridge(self)
+            self._model_bridges.append(bridge)
+            self._set_model_manager_busy(True)
+
+            def done(result: Any, error: Any) -> None:
+                if bridge in self._model_bridges:
+                    self._model_bridges.remove(bridge)
+                self._set_model_manager_busy(False)
+                completed(result, str(error) if error else None)
+
+            bridge.finished.connect(done)
+
+            def runner() -> None:
+                try:
+                    bridge.finished.emit(action(), None)
+                except Exception as exc:
+                    bridge.finished.emit(None, str(exc))
+
+            threading.Thread(target=runner, daemon=True, name="semdex-model-manager").start()
+
+        def refresh_local_models(self, *, show_errors: bool = False) -> None:
+            try:
+                catalog = self.controller.local_model_catalog()
+            except Exception as exc:
+                self.local_runtime_status.setText(f"无法读取本地模型：{exc}")
+                if show_errors:
+                    QMessageBox.warning(self, "无法刷新模型", str(exc))
+                return
+            self._model_catalog = catalog if isinstance(catalog, dict) else {}
+            self.local_model_dir.setText(str(self._model_catalog.get("model_dir", "")))
+            runtimes = self._model_catalog.get("runtimes", [])
+            details: list[str] = []
+            if isinstance(runtimes, list):
+                for runtime in runtimes:
+                    if not isinstance(runtime, dict):
+                        continue
+                    name = str(runtime.get("id", "运行时"))
+                    state = "可用" if runtime.get("available") else "不可用"
+                    detail = str(runtime.get("detail", "")).strip()
+                    details.append(f"{name}: {state}" + (f"（{detail}）" if detail else ""))
+            self.local_runtime_status.setText("  |  ".join(details) or "未检测到本地模型运行时")
+
+            current_values = {
+                name: self._combo_value(fields["local_model"])
+                for name, fields in self.model_fields.items()
+            }
+            current_values["asr"] = self._combo_value(self.asr_local_model)
+            for name, fields in self.model_fields.items():
+                self._populate_local_model_combo(
+                    fields["local_model"],
+                    current_values[name],
+                    self.MODEL_CAPABILITIES[name],
+                )
+            self._populate_local_model_combo(self.asr_local_model, current_values["asr"], "asr")
+
+            self.local_models_tree.clear()
+            models = self._model_catalog.get("models", [])
+            if isinstance(models, list):
+                for model in models:
+                    if not isinstance(model, dict):
+                        continue
+                    model_id = str(model.get("id", "")).strip()
+                    if not model_id:
+                        continue
+                    capabilities = model.get("capabilities", [])
+                    if not isinstance(capabilities, list):
+                        capabilities = []
+                    loaded = model.get("loaded")
+                    if isinstance(loaded, list):
+                        loaded_text = "已加载: " + ", ".join(str(item) for item in loaded)
+                    elif loaded:
+                        loaded_text = "已加载"
+                    elif model.get("loadable"):
+                        loaded_text = "可加载"
+                    else:
+                        loaded_text = str(model.get("reason", "不可加载"))
+                    item = QTreeWidgetItem([
+                        str(model.get("name", model_id)),
+                        str(model.get("format", "")).upper(),
+                        self._format_size(model.get("size_bytes")),
+                        ", ".join(str(item) for item in capabilities),
+                        loaded_text,
+                    ])
+                    item.setToolTip(0, model_id)
+                    reason = str(model.get("reason", "")).strip()
+                    if reason:
+                        item.setToolTip(4, reason)
+                    item.setData(0, Qt.ItemDataRole.UserRole, model)
+                    self.local_models_tree.addTopLevelItem(item)
+
+        def open_model_directory(self) -> None:
+            directory = self.local_model_dir.text().strip()
+            if not directory:
+                QMessageBox.warning(self, "无法打开目录", "模型目录尚不可用")
+                return
+            QDesktopServices.openUrl(QUrl.fromLocalFile(directory))
+
+        def load_selected_local_model(self) -> None:
+            model = self._selected_local_model()
+            if model is None:
+                QMessageBox.information(self, "选择模型", "请先在可用模型列表中选择一个模型")
+                return
+            model_id = str(model.get("id", ""))
+            capability = self._combo_value(self.local_model_capability)
+
+            def complete(result: Any, error: str | None) -> None:
+                if error:
+                    QMessageBox.warning(self, "无法加载模型", error)
+                    return
+                self.refresh_local_models()
+                detail = str(result.get("detail", "已加载到内存")) if isinstance(result, dict) else "已加载到内存"
+                QMessageBox.information(self, "Semdex", detail)
+
+            self._run_model_action(
+                lambda: self.controller.load_local_model(model_id, capability), complete
+            )
+
+        def unload_selected_local_model(self, *, all_capabilities: bool) -> None:
+            model = self._selected_local_model()
+            if model is None:
+                QMessageBox.information(self, "选择模型", "请先在可用模型列表中选择一个模型")
+                return
+            model_id = str(model.get("id", ""))
+            capability = None if all_capabilities else self._combo_value(self.local_model_capability)
+
+            def complete(result: Any, error: str | None) -> None:
+                if error:
+                    QMessageBox.warning(self, "无法卸载模型", error)
+                    return
+                self.refresh_local_models()
+                detail = str(result.get("detail", "模型已卸载")) if isinstance(result, dict) else "模型已卸载"
+                QMessageBox.information(self, "Semdex", detail)
+
+            self._run_model_action(
+                lambda: self.controller.unload_local_model(model_id, capability), complete
+            )
 
         def _build_tools_tab(self) -> QWidget:
             page, layout = self._scroll_tab()
@@ -263,18 +561,19 @@ def run_gui(config_path: str | None = None) -> int:
                 self._form_widget(ocr, label, field)
 
             asr_box = QGroupBox("语音识别")
-            asr = QFormLayout(asr_box)
+            self.asr_form = QFormLayout(asr_box)
             self.asr_enabled = QCheckBox("启用")
             self.asr_provider = QComboBox()
-            self.asr_provider.addItem("faster-whisper（本地）", "faster_whisper")
-            self.asr_provider.addItem("OpenAI 兼容接口", "openai_compatible")
+            self.asr_provider.addItem("本地模型", "local")
+            self.asr_provider.addItem("OpenAI API", "openai_compatible")
+            self.asr_local_model = QComboBox()
+            self.asr_local_model.addItem("未选择", "")
+            self.asr_local_backend = QComboBox()
+            self.asr_local_backend.addItem("自动", "auto")
+            self.asr_local_backend.addItem("faster-whisper", "faster_whisper")
+            self.asr_local_backend.addItem("whisper.cpp", "whisper_cpp")
+            self.asr_local_backend.addItem("MLX Whisper", "mlx_whisper")
             self.asr_model = QLineEdit()
-            self.asr_device = QComboBox()
-            for value in ("auto", "cpu", "cuda"):
-                self.asr_device.addItem(value, value)
-            self.asr_compute_type = QComboBox()
-            for value in ("int8", "float16", "float32", "int8_float16"):
-                self.asr_compute_type.addItem(value, value)
             self.asr_base_url = QLineEdit()
             self.asr_endpoint = QLineEdit()
             self.asr_language = QLineEdit()
@@ -285,13 +584,24 @@ def run_gui(config_path: str | None = None) -> int:
             self.asr_clear_api_key = QCheckBox("删除已保存密钥")
             self.asr_timeout = self._int_box(1)
             for label, field in [
-                ("", self.asr_enabled), ("提供方", self.asr_provider), ("模型", self.asr_model),
-                ("运行设备", self.asr_device), ("计算精度", self.asr_compute_type),
+                ("", self.asr_enabled), ("来源", self.asr_provider), ("本地模型", self.asr_local_model),
+                ("本地后端", self.asr_local_backend), ("API 模型", self.asr_model),
                 ("接口基地址", self.asr_base_url), ("转写接口", self.asr_endpoint),
                 ("语言", self.asr_language), ("响应文本路径", self.asr_response_path),
                 ("API Key", self.asr_api_key), ("", self.asr_clear_api_key), ("超时（秒）", self.asr_timeout),
             ]:
-                self._form_widget(asr, label, field)
+                self._form_widget(self.asr_form, label, field)
+            self.asr_api_widgets = (
+                self.asr_model,
+                self.asr_base_url,
+                self.asr_endpoint,
+                self.asr_language,
+                self.asr_response_path,
+                self.asr_api_key,
+                self.asr_clear_api_key,
+                self.asr_timeout,
+            )
+            self.asr_provider.currentIndexChanged.connect(self._sync_asr_provider_fields)
             layout.addWidget(ocr_box)
             layout.addWidget(asr_box)
             layout.addStretch()
@@ -357,12 +667,15 @@ def run_gui(config_path: str | None = None) -> int:
             for name, fields in self.model_fields.items():
                 model = settings.get("models", {}).get(name, {})
                 fields["enabled"].setChecked(bool(model.get("enabled", False)))
+                self._set_combo(fields["mode"], str(model.get("mode", "openai")))
+                self._set_combo(fields["local_model"], str(model.get("local_model", "")))
                 fields["base_url"].setText(str(model.get("base_url", "")))
                 fields["model"].setText(str(model.get("model", "")))
                 fields["api_key"].setText("")
                 fields["clear_api_key"].setChecked(False)
                 if model.get("api_key_configured"):
                     fields["api_key"].setPlaceholderText("已保存；留空以保留")
+                self._sync_model_source_fields(name)
 
             ocr = settings.get("ocr", {})
             self.ocr_enabled.setChecked(bool(ocr.get("enabled", False)))
@@ -381,10 +694,16 @@ def run_gui(config_path: str | None = None) -> int:
 
             asr = settings.get("asr", {})
             self.asr_enabled.setChecked(bool(asr.get("enabled", False)))
-            self._set_combo(self.asr_provider, str(asr.get("provider", "faster_whisper")))
+            provider = str(asr.get("provider", "local"))
+            if provider == "faster_whisper":
+                provider = "local"
+            self._set_combo(self.asr_provider, provider)
+            local_model = str(asr.get("local_model", ""))
+            if not local_model and provider == "local":
+                local_model = str(asr.get("model", ""))
+            self._set_combo(self.asr_local_model, local_model)
+            self._set_combo(self.asr_local_backend, str(asr.get("local_backend", "auto")))
             self.asr_model.setText(str(asr.get("model", "base")))
-            self._set_combo(self.asr_device, str(asr.get("device", "auto")))
-            self._set_combo(self.asr_compute_type, str(asr.get("compute_type", "int8")))
             self.asr_base_url.setText(str(asr.get("base_url", "")))
             self.asr_endpoint.setText(str(asr.get("endpoint", "")))
             self.asr_language.setText(str(asr.get("language", "")))
@@ -394,6 +713,7 @@ def run_gui(config_path: str | None = None) -> int:
             self.asr_timeout.setValue(int(asr.get("timeout_sec", 180)))
             if asr.get("api_key_configured"):
                 self.asr_api_key.setPlaceholderText("已保存；留空以保留")
+            self._sync_asr_provider_fields()
 
             entities = settings.get("entities", {})
             agent = settings.get("agent", {})
@@ -414,6 +734,8 @@ def run_gui(config_path: str | None = None) -> int:
             for name, fields in self.model_fields.items():
                 item = {
                     "enabled": fields["enabled"].isChecked(),
+                    "mode": self._combo_value(fields["mode"]),
+                    "local_model": self._combo_value(fields["local_model"]),
                     "base_url": fields["base_url"].text().strip(),
                     "model": fields["model"].text().strip(),
                 }
@@ -441,10 +763,10 @@ def run_gui(config_path: str | None = None) -> int:
                 ocr["clear_api_key"] = True
             asr: dict[str, Any] = {
                 "enabled": self.asr_enabled.isChecked(),
-                "provider": self.asr_provider.currentData(),
+                "provider": self._combo_value(self.asr_provider),
+                "local_model": self._combo_value(self.asr_local_model),
+                "local_backend": self._combo_value(self.asr_local_backend),
                 "model": self.asr_model.text().strip(),
-                "device": self.asr_device.currentData(),
-                "compute_type": self.asr_compute_type.currentData(),
                 "base_url": self.asr_base_url.text().strip(),
                 "endpoint": self.asr_endpoint.text().strip(),
                 "language": self.asr_language.text().strip(),

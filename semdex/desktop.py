@@ -89,6 +89,28 @@ class DesktopController:
                 self._requeue_files_when_fallback_is_enabled(before, after)
                 return settings_dict(after)
 
+    def local_model_catalog(self) -> dict[str, Any]:
+        """Return local model files and in-memory runtime status for the GUI."""
+        from .localmodels import get_local_model_manager
+
+        return get_local_model_manager(self.config.model_dir).catalog()
+
+    def load_local_model(self, model_id: str, capability: str) -> dict[str, Any]:
+        """Load one discovered local model for a specific capability."""
+        from .localmodels import get_local_model_manager
+
+        return get_local_model_manager(self.config.model_dir).load(model_id, capability)
+
+    def unload_local_model(
+        self,
+        model_id: str,
+        capability: str | None = None,
+    ) -> dict[str, Any]:
+        """Release one capability, or every runtime for the selected model."""
+        from .localmodels import get_local_model_manager
+
+        return get_local_model_manager(self.config.model_dir).unload(model_id, capability)
+
     def status(self) -> dict[str, Any]:
         config = self.config
         db = self._open_db(config)

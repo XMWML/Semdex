@@ -3,7 +3,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ..models import CapabilityNotConfigured, CapabilityUnavailable, ExtractError
+from ..localmodels import get_local_model_manager
+from ..models import (
+    CapabilityNotConfigured,
+    CapabilityUnavailable,
+    ExtractError,
+    ModelNotConfigured,
+    ModelUnavailable,
+)
 from ..paths import ensure_private_directory
 from ..remote import RemoteRequestError, RemoteResponseError, post_multipart_json
 from .base import ExtractContext, Extractor
@@ -23,7 +30,7 @@ class MediaExtractor(Extractor):
             raise CapabilityNotConfigured(
                 "ASR 未启用（在配置中设置 [asr] enabled = true，并执行 `uv sync --extra asr`）"
             )
-        if cfg.provider != "faster_whisper":
+        if cfg.provider not in {"faster_whisper", "local"}:
             raise CapabilityNotConfigured(
                 "当前 ASR provider 不是 faster_whisper，不能加载本地 Whisper 模型"
             )
@@ -35,12 +42,15 @@ class MediaExtractor(Extractor):
             ) from e
 
         download_root = ensure_private_directory(ctx.config.model_dir / "whisper")
-        key = (cfg.model, cfg.device, cfg.compute_type, str(download_root))
+        # ``model`` is retained as the legacy faster-whisper identifier.  New
+        # local file selections are handled by LocalModelManager in extract().
+        legacy_model = cfg.model.strip() or cfg.local_model.strip()
+        key = (legacy_model, cfg.device, cfg.compute_type, str(download_root))
         model = self._models.get(key)
         if model is None:
             try:
                 model = WhisperModel(
-                    cfg.model,
+                    legacy_model,
                     device=cfg.device,
                     compute_type=cfg.compute_type,
                     download_root=str(download_root),
@@ -49,6 +59,22 @@ class MediaExtractor(Extractor):
                 raise CapabilityUnavailable(f"无法加载本地 Whisper 模型 {cfg.model}: {e}") from e
             self._models[key] = model
         return model
+
+    @staticmethod
+    def _local_manager(ctx: ExtractContext):
+        model_dir = ctx.config.asr.local_model_dir or ctx.config.model_dir
+        return get_local_model_manager(model_dir)
+
+    @staticmethod
+    def _known_legacy_model(model_id: str) -> bool:
+        # Existing configurations used names that faster-whisper downloads from
+        # Hugging Face.  Keep those names working while requiring new models to
+        # be files/directories discovered under project models/.
+        return model_id.strip().lower() in {
+            "tiny", "tiny.en", "base", "base.en", "small", "small.en",
+            "medium", "medium.en", "large-v1", "large-v2", "large-v3",
+            "large", "distil-large-v2", "distil-large-v3",
+        }
 
     @staticmethod
     def _remote_endpoint(ctx: ExtractContext) -> str:
@@ -112,14 +138,49 @@ class MediaExtractor(Extractor):
                 "ASR 未启用（在配置中设置 [asr] enabled = true）"
             )
 
-        if cfg.provider == "faster_whisper":
-            model = self._model(ctx)
-            try:
-                segments, info = model.transcribe(str(path), vad_filter=True)
-                text = "\n".join(segment.text.strip() for segment in segments if segment.text.strip())
-            except Exception as e:
-                raise ExtractError(f"音视频转写失败: {e}") from e
-            language = getattr(info, "language", "")
+        if cfg.provider in {"faster_whisper", "local"}:
+            model_id = (cfg.local_model or cfg.model).strip()
+            if not model_id:
+                raise CapabilityNotConfigured(
+                    "本地 ASR 未选择模型（请在设置中选择 models 目录内的 local_model）"
+                )
+            manager = self._local_manager(ctx)
+            discovered_ids = {record.id for record in manager.discover()}
+            if model_id in discovered_ids:
+                try:
+                    text, language = manager.transcribe(
+                        model_id,
+                        path,
+                        backend=cfg.local_backend,
+                        device=cfg.device,
+                        compute_type=cfg.compute_type,
+                        language=cfg.language,
+                    )
+                except (ModelNotConfigured, ModelUnavailable):
+                    raise
+                except Exception as e:
+                    raise ExtractError(f"音视频转写失败: {e}") from e
+            elif cfg.provider == "faster_whisper" or self._known_legacy_model(model_id):
+                model = self._model(ctx)
+                try:
+                    options = {"vad_filter": True}
+                    if cfg.language:
+                        options["language"] = cfg.language
+                    segments, info = model.transcribe(str(path), **options)
+                    text = "\n".join(segment.text.strip() for segment in segments if segment.text.strip())
+                except Exception as e:
+                    raise ExtractError(f"音视频转写失败: {e}") from e
+                language = getattr(info, "language", "")
+            else:
+                # Let the manager produce the precise relative-path error.
+                text, language = manager.transcribe(
+                    model_id,
+                    path,
+                    backend=cfg.local_backend,
+                    device=cfg.device,
+                    compute_type=cfg.compute_type,
+                    language=cfg.language,
+                )
             prefix = f"[音视频转写{f'，语言: {language}' if language else ''}]"
         elif cfg.provider == "openai_compatible":
             text = self._transcribe_openai_compatible(path, ctx)

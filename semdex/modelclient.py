@@ -10,6 +10,7 @@ import base64
 from pathlib import Path
 
 from .config import ModelCfg
+from .localmodels import get_local_model_manager
 from .models import ModelNotConfigured, ModelUnavailable
 
 _IMAGE_MIME = {
@@ -34,6 +35,11 @@ def embedding_identity(cfg: ModelCfg) -> str:
     A display model name is not enough: two compatible endpoints can expose
     different models under the same name.
     """
+    mode = getattr(cfg, "mode", "openai")
+    if mode == "local":
+        model_dir = getattr(cfg, "local_model_dir", None)
+        root = str(model_dir.resolve(strict=False)) if model_dir is not None else "models"
+        return f"local\n{root}\n{cfg.local_model}"
     return f"{cfg.base_url.rstrip('/')}\n{cfg.model}"
 
 
@@ -47,9 +53,34 @@ class ModelClient:
     def enabled(self) -> bool:
         return self.cfg.enabled
 
+    @property
+    def local(self) -> bool:
+        return getattr(self.cfg, "mode", "openai") == "local"
+
+    def _local_manager(self):
+        model_id = getattr(self.cfg, "local_model", "").strip()
+        if not model_id:
+            raise ModelNotConfigured(
+                f"{self.kind} 本地模型未选择（请在设置中选择 models 目录内的 local_model）"
+            )
+        model_dir = getattr(self.cfg, "local_model_dir", None)
+        if model_dir is None:
+            from .paths import default_model_dir
+
+            model_dir = default_model_dir()
+        return get_local_model_manager(model_dir)
+
     def _get_client(self):
         if not self.cfg.enabled:
             raise ModelNotConfigured(f"{self.kind} 模型未启用（配置 [models.{self.kind}] enabled = true）")
+        if self.local:
+            # The manager, rather than a remote SDK client, owns native model
+            # objects and their explicit load/unload lifecycle.
+            if not getattr(self.cfg, "local_model", "").strip():
+                raise ModelNotConfigured(f"{self.kind} 本地模型未选择")
+            if self._client is None:
+                self._client = self._local_manager()
+            return self._client
         if self._client is None:
             from openai import OpenAI
             self._client = OpenAI(
@@ -70,6 +101,13 @@ class ModelClient:
 
     def chat(self, messages: list[dict], **kwargs) -> str:
         client = self._get_client()
+        if self.local:
+            try:
+                return client.chat(self.cfg.local_model, messages, **kwargs)
+            except (ModelNotConfigured, ModelUnavailable):
+                raise
+            except Exception as e:
+                raise ModelUnavailable(f"{self.kind} 本地模型调用失败: {e}") from e
         try:
             resp = client.chat.completions.create(model=self.cfg.model, messages=messages, **kwargs)
         except Exception as e:
@@ -84,6 +122,13 @@ class ModelClient:
         of OpenAI SDK response classes and friendly to local compatible servers.
         """
         client = self._get_client()
+        if self.local:
+            try:
+                return client.chat_with_tools(self.cfg.local_model, messages, tools, **kwargs)
+            except (ModelNotConfigured, ModelUnavailable):
+                raise
+            except Exception as e:
+                raise ModelUnavailable(f"{self.kind} 本地模型工具调用失败: {e}") from e
         try:
             resp = client.chat.completions.create(
                 model=self.cfg.model,
@@ -106,6 +151,14 @@ class ModelClient:
         return raw, message.content or "", calls
 
     def describe_image(self, path: Path) -> str:
+        if self.local:
+            client = self._get_client()
+            try:
+                return client.describe_image(self.cfg.local_model, path, VISION_PROMPT)
+            except (ModelNotConfigured, ModelUnavailable):
+                raise
+            except Exception as e:
+                raise ModelUnavailable(f"{self.kind} 本地视觉模型调用失败: {e}") from e
         mime = _IMAGE_MIME.get(path.suffix.lower(), "image/png")
         b64 = base64.b64encode(path.read_bytes()).decode("ascii")
         return self.chat([
@@ -120,6 +173,13 @@ class ModelClient:
 
     def embed(self, texts: list[str]) -> list[list[float]]:
         client = self._get_client()
+        if self.local:
+            try:
+                return client.embed(self.cfg.local_model, texts)
+            except (ModelNotConfigured, ModelUnavailable):
+                raise
+            except Exception as e:
+                raise ModelUnavailable(f"{self.kind} 本地向量模型调用失败: {e}") from e
         try:
             resp = client.embeddings.create(model=self.cfg.model, input=texts)
         except Exception as e:

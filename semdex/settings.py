@@ -42,8 +42,10 @@ def _model_to_dict(cfg: ModelCfg) -> dict[str, Any]:
     """Return a connection description without exposing its API key."""
     return {
         "enabled": cfg.enabled,
+        "mode": cfg.mode,
         "base_url": cfg.base_url,
         "model": cfg.model,
+        "local_model": cfg.local_model,
         "api_key_configured": bool(cfg.api_key),
     }
 
@@ -84,6 +86,8 @@ def settings_dict(config: Config) -> dict[str, Any]:
             "enabled": config.asr.enabled,
             "provider": config.asr.provider,
             "model": config.asr.model,
+            "local_model": config.asr.local_model,
+            "local_backend": config.asr.local_backend,
             "device": config.asr.device,
             "compute_type": config.asr.compute_type,
             "base_url": config.asr.base_url,
@@ -232,8 +236,28 @@ def _string_list(value: object, label: str) -> list[str]:
 def _model_from_payload(current: ModelCfg, value: object, label: str) -> ModelCfg:
     data = _mapping(value, label)
     enabled = _bool(_setting(data, "enabled", current.enabled), f"{label}.enabled")
-    base_url = _string(_setting(data, "base_url", current.base_url), f"{label}.base_url", allow_empty=not enabled).rstrip("/")
-    model = _string(_setting(data, "model", current.model), f"{label}.model", allow_empty=not enabled)
+    raw_mode = _setting(data, "mode", _setting(data, "provider", current.mode))
+    mode = _string(raw_mode, f"{label}.mode", allow_empty=False).lower()
+    if mode in {"openai_compatible", "api", "openai-compatible"}:
+        mode = "openai"
+    if mode not in {"openai", "local"}:
+        raise ValueError(f"{label}.mode 必须是 openai 或 local")
+    local_model = _string(
+        _setting(data, "local_model", current.local_model),
+        f"{label}.local_model",
+    )
+    if enabled and mode == "local" and not local_model:
+        raise ValueError(f"{label}.local_model 不能为空")
+    base_url = _string(
+        _setting(data, "base_url", current.base_url),
+        f"{label}.base_url",
+        allow_empty=not enabled or mode == "local",
+    ).rstrip("/")
+    model = _string(
+        _setting(data, "model", current.model),
+        f"{label}.model",
+        allow_empty=not enabled or mode == "local",
+    )
     api_key = current.api_key
     if "api_key" in data:
         candidate = _string(data["api_key"], f"{label}.api_key")
@@ -241,7 +265,14 @@ def _model_from_payload(current: ModelCfg, value: object, label: str) -> ModelCf
             api_key = candidate
     if data.get("clear_api_key") is True:
         api_key = ""
-    return ModelCfg(enabled=enabled, base_url=base_url, api_key=api_key, model=model)
+    return ModelCfg(
+        enabled=enabled,
+        base_url=base_url,
+        api_key=api_key,
+        model=model,
+        mode=mode,
+        local_model=local_model,
+    )
 
 
 def _build_config(current: Config, payload: object) -> Config:
@@ -302,24 +333,75 @@ def _build_config(current: Config, payload: object) -> Config:
     asr_provider = _string(
         _setting(asr, "provider", current.asr.provider), "asr.provider", allow_empty=False
     ).lower()
+    legacy_asr_provider = asr_provider
+    if asr_provider in {
+        "faster_whisper",
+        "faster-whisper",
+        "mlx_whisper",
+        "mlx-whisper",
+        "whisper_cpp",
+        "whisper-cpp",
+        "gguf",
+    }:
+        asr_provider = "local"
+    if asr_provider not in {"local", "openai_compatible"}:
+        raise ValueError("asr.provider 必须是 local 或 openai_compatible")
+    legacy_backend = {
+        "mlx_whisper": "mlx_whisper",
+        "mlx-whisper": "mlx_whisper",
+        "whisper_cpp": "whisper_cpp",
+        "whisper-cpp": "whisper_cpp",
+        "gguf": "whisper_cpp",
+        "faster_whisper": "faster_whisper",
+        "faster-whisper": "faster_whisper",
+    }.get(legacy_asr_provider, "auto")
+    local_backend = _string(
+        _setting(asr, "local_backend", current.asr.local_backend or legacy_backend),
+        "asr.local_backend",
+        allow_empty=False,
+    ).lower()
+    local_backend = {
+        "faster-whisper": "faster_whisper",
+        "mlx-whisper": "mlx_whisper",
+        "whisper-cpp": "whisper_cpp",
+        "gguf": "whisper_cpp",
+    }.get(local_backend, local_backend)
+    if local_backend not in {"auto", "faster_whisper", "mlx_whisper", "whisper_cpp"}:
+        raise ValueError("asr.local_backend 必须是 auto、faster_whisper、mlx_whisper 或 whisper_cpp")
+    asr_enabled = _bool(_setting(asr, "enabled", current.asr.enabled), "asr.enabled")
+    asr_model = _string(
+        _setting(asr, "model", current.asr.model),
+        "asr.model",
+        allow_empty=not asr_enabled or asr_provider in {"local", "openai_compatible"},
+    )
+    asr_local_model = _string(
+        _setting(asr, "local_model", current.asr.local_model),
+        "asr.local_model",
+    )
+    if not asr_local_model and asr_provider == "local" and legacy_asr_provider != "local":
+        # Keep old [asr] provider = faster_whisper / model = "base" configs
+        # usable while new configs select an explicit file path.
+        asr_local_model = asr_model
     asr_cfg = AsrCfg(
-        enabled=_bool(_setting(asr, "enabled", current.asr.enabled), "asr.enabled"),
+        enabled=asr_enabled,
         provider=asr_provider,
         # OpenAI-compatible transcription endpoints can choose a server-side
         # default model, while faster-whisper always needs a local model id.
-        model=_string(
-            _setting(asr, "model", current.asr.model),
-            "asr.model",
-            allow_empty=asr_provider == "openai_compatible",
-        ),
+        model=asr_model,
         device=_string(_setting(asr, "device", current.asr.device), "asr.device", allow_empty=False),
         compute_type=_string(_setting(asr, "compute_type", current.asr.compute_type), "asr.compute_type", allow_empty=False),
-        base_url=_string(_setting(asr, "base_url", current.asr.base_url), "asr.base_url").rstrip("/"),
+        base_url=_string(
+            _setting(asr, "base_url", current.asr.base_url),
+            "asr.base_url",
+            allow_empty=not asr_enabled or asr_provider == "local",
+        ).rstrip("/"),
         endpoint=_string(_setting(asr, "endpoint", current.asr.endpoint), "asr.endpoint"),
         api_key=current.asr.api_key,
         language=_string(_setting(asr, "language", current.asr.language), "asr.language"),
         response_path=_string(_setting(asr, "response_path", current.asr.response_path), "asr.response_path", allow_empty=False),
         timeout_sec=_integer(_setting(asr, "timeout_sec", current.asr.timeout_sec), "asr.timeout_sec", 1),
+        local_model=asr_local_model,
+        local_backend=local_backend,
     )
     if "api_key" in asr:
         candidate = _string(asr["api_key"], "asr.api_key")
@@ -395,9 +477,11 @@ def _model_toml(name: str, cfg: ModelCfg) -> list[str]:
     return [
         f"[models.{name}]",
         f"enabled = {_toml_bool(cfg.enabled)}",
+        f"mode = {_toml_string(cfg.mode)}",
         f"base_url = {_toml_string(cfg.base_url)}",
         f"api_key = {_toml_string(cfg.api_key)}",
         f"model = {_toml_string(cfg.model)}",
+        f"local_model = {_toml_string(cfg.local_model)}",
         "",
     ]
 
@@ -442,6 +526,8 @@ def _to_toml(config: Config) -> str:
         "[asr]",
         f"enabled = {_toml_bool(config.asr.enabled)}",
         f"provider = {_toml_string(config.asr.provider)}",
+        f"local_backend = {_toml_string(config.asr.local_backend)}",
+        f"local_model = {_toml_string(config.asr.local_model)}",
         f"model = {_toml_string(config.asr.model)}",
         f"device = {_toml_string(config.asr.device)}",
         f"compute_type = {_toml_string(config.asr.compute_type)}",

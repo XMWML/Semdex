@@ -91,6 +91,25 @@ def test_bootstrap_passes_project_local_environment_to_uv_before_sync(tmp_path: 
     assert Path(environment["UV_PYTHON_INSTALL_DIR"]) == portable_root / ".uv-python"
 
 
+def test_bootstrap_can_launch_webui_with_selected_local_model_runtime(tmp_path: Path, monkeypatch):
+    portable_root = tmp_path / "portable-semdex"
+    calls: list[list[str]] = []
+
+    monkeypatch.setattr(bootstrap_module, "application_root", lambda: portable_root)
+    monkeypatch.setattr(bootstrap_module.shutil, "which", lambda *_args, **_kwargs: "uv")
+    monkeypatch.setattr(
+        bootstrap_module.subprocess,
+        "run",
+        lambda command, **_kwargs: calls.append(command) or SimpleNamespace(returncode=0),
+    )
+
+    assert bootstrap_module.main(["--web", "--with-asr", "--with-gguf"]) == 0
+    assert calls == [
+        ["uv", "sync", "--extra", "asr", "--extra", "gguf"],
+        ["uv", "run", "--extra", "asr", "--extra", "gguf", "semdex", "serve"],
+    ]
+
+
 def test_gui_search_guard_discards_old_searches():
     guard = SearchRequestGuard()
     first = guard.begin()

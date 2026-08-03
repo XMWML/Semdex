@@ -248,6 +248,92 @@
     gap: 12px;
   }
 
+  .model-library {
+    margin-bottom: 18px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface);
+  }
+
+  .model-library-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 14px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .model-library-head h3 { margin: 0; font-size: 15px; }
+  .model-library-head p { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
+  .model-library-actions { display: flex; align-items: center; gap: 8px; }
+
+  .model-directory {
+    overflow-wrap: anywhere;
+    color: var(--text);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 11px;
+  }
+
+  .runtime-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 10px 14px 0;
+  }
+
+  .runtime-chip,
+  .model-meta,
+  .model-status {
+    display: inline-flex;
+    align-items: center;
+    min-height: 24px;
+    padding: 2px 7px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: var(--muted);
+    background: var(--surface-soft);
+    font-size: 11px;
+    line-height: 1.3;
+  }
+
+  .runtime-chip.available,
+  .model-status.loaded { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); }
+  .runtime-chip.unavailable,
+  .model-status.unavailable { border-color: var(--danger); color: var(--danger); background: var(--danger-soft); }
+
+  .model-library-list { display: grid; gap: 0; padding: 10px 14px 14px; }
+
+  .model-library-empty {
+    padding: 14px 0 4px;
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  .managed-model {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 12px;
+    align-items: center;
+    padding: 10px 0;
+    border-top: 1px solid var(--border);
+  }
+
+  .managed-model:first-child { border-top: 0; }
+  .managed-model-name { min-width: 0; font-weight: 600; overflow-wrap: anywhere; }
+  .managed-model-id { margin-top: 2px; color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
+  .managed-model-meta { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+  .managed-model-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+  .managed-model-actions select { width: auto; min-width: 92px; min-height: 32px; padding: 5px 7px; font-size: 12px; }
+  .managed-model-actions button { min-height: 32px; padding: 5px 9px; font-size: 12px; }
+
+  .model-source-label { color: var(--muted); font-size: 12px; }
+  .model-local-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
+  .model-local-actions button { min-height: 32px; padding: 5px 9px; font-size: 12px; }
+  .model-local-state { color: var(--muted); font-size: 11px; }
+  .model-local-state.loaded { color: var(--primary); }
+  .model-local-state.error { color: var(--danger); }
+
   .model-card,
   .integration-card {
     border: 1px solid var(--border);
@@ -392,6 +478,9 @@
     .savebar { align-items: stretch; flex-direction: column; }
     .save-actions { justify-content: stretch; }
     .save-actions button { flex: 1 1 140px; }
+    .model-library-head { align-items: start; flex-direction: column; }
+    .managed-model { grid-template-columns: 1fr; align-items: start; }
+    .model-library-actions, .managed-model-actions { justify-content: flex-start; }
   }
 
   @media (max-width: 470px) {
@@ -470,76 +559,108 @@
         <h2 id="modelsTitle">模型</h2>
         <p>每项能力可使用不同接口与模型</p>
       </div>
+      <section class="model-library" aria-labelledby="modelLibraryTitle">
+        <header class="model-library-head">
+          <div>
+            <h3 id="modelLibraryTitle">项目模型库</h3>
+            <p>将 MLX 或 GGUF 模型文件放入此目录后刷新，即可按用途加载并选择。</p>
+            <div class="model-directory" id="modelDirectory">正在读取模型目录</div>
+          </div>
+          <div class="model-library-actions">
+            <button type="button" id="refreshModelsButton">刷新模型</button>
+          </div>
+        </header>
+        <div class="runtime-list" id="runtimeList" aria-live="polite"></div>
+        <div class="model-library-list" id="modelLibraryList" aria-live="polite"></div>
+      </section>
       <div class="model-grid" id="modelGrid">
-        <article class="model-card" data-model="llm">
+        <article class="model-card" data-model="llm" data-capability="chat">
           <header class="model-head">
-            <div><div class="model-kind">兼容</div><h3>默认 LLM</h3></div>
+            <div><div class="model-kind">对话</div><h3>默认 LLM</h3></div>
             <label class="switch"><input data-field="enabled" type="checkbox"><span class="switch-track" aria-hidden="true"></span><span>启用</span></label>
           </header>
           <div class="model-fields">
-            <label class="field full"><span class="field-label">接口地址</span><input data-field="base_url" type="url" spellcheck="false" autocomplete="off" placeholder="http://localhost:1234/v1"></label>
-            <label class="field"><span class="field-label">模型</span><input data-field="model" type="text" spellcheck="false" autocomplete="off"></label>
-            <div class="field"><span class="field-label">API Key</span><input data-field="api_key" type="password" autocomplete="new-password"><small class="field-note key-note"></small><label class="clear-key"><input data-field="clear_api_key" type="checkbox"><span>删除已保存密钥</span></label></div>
+            <label class="field full"><span class="field-label">调用方式</span><select data-field="mode"><option value="openai">OpenAI API</option><option value="local">项目本地模型</option></select></label>
+            <label class="field full model-local"><span class="field-label">本地模型</span><select data-field="local_model"></select><small class="field-note">模型先在上方加载到内存，未加载的选择将在调用时提示。</small></label>
+            <div class="field full model-local"><div class="model-local-actions"><button type="button" data-model-action="load">加载到内存</button><button type="button" data-model-action="unload">卸载</button><span class="model-local-state" data-local-state></span></div></div>
+            <label class="field full model-api"><span class="field-label">接口地址</span><input data-field="base_url" type="url" spellcheck="false" autocomplete="off" placeholder="https://api.openai.com/v1"></label>
+            <label class="field model-api"><span class="field-label">模型</span><input data-field="model" type="text" spellcheck="false" autocomplete="off"></label>
+            <div class="field model-api"><span class="field-label">API Key</span><input data-field="api_key" type="password" autocomplete="new-password"><small class="field-note key-note"></small><label class="clear-key"><input data-field="clear_api_key" type="checkbox"><span>删除已保存密钥</span></label></div>
           </div>
         </article>
 
-        <article class="model-card" data-model="agent">
+        <article class="model-card" data-model="agent" data-capability="chat">
           <header class="model-head">
             <div><div class="model-kind">LLM</div><h3>检索 Agent</h3></div>
             <label class="switch"><input data-field="enabled" type="checkbox"><span class="switch-track" aria-hidden="true"></span><span>启用</span></label>
           </header>
           <div class="model-fields">
-            <label class="field full"><span class="field-label">接口地址</span><input data-field="base_url" type="url" spellcheck="false" autocomplete="off" placeholder="http://localhost:1234/v1"></label>
-            <label class="field"><span class="field-label">模型</span><input data-field="model" type="text" spellcheck="false" autocomplete="off"></label>
-            <div class="field"><span class="field-label">API Key</span><input data-field="api_key" type="password" autocomplete="new-password"><small class="field-note key-note"></small><label class="clear-key"><input data-field="clear_api_key" type="checkbox"><span>删除已保存密钥</span></label></div>
+            <label class="field full"><span class="field-label">调用方式</span><select data-field="mode"><option value="openai">OpenAI API</option><option value="local">项目本地模型</option></select></label>
+            <label class="field full model-local"><span class="field-label">本地模型</span><select data-field="local_model"></select><small class="field-note">模型先在上方加载到内存，未加载的选择将在调用时提示。</small></label>
+            <div class="field full model-local"><div class="model-local-actions"><button type="button" data-model-action="load">加载到内存</button><button type="button" data-model-action="unload">卸载</button><span class="model-local-state" data-local-state></span></div></div>
+            <label class="field full model-api"><span class="field-label">接口地址</span><input data-field="base_url" type="url" spellcheck="false" autocomplete="off" placeholder="https://api.openai.com/v1"></label>
+            <label class="field model-api"><span class="field-label">模型</span><input data-field="model" type="text" spellcheck="false" autocomplete="off"></label>
+            <div class="field model-api"><span class="field-label">API Key</span><input data-field="api_key" type="password" autocomplete="new-password"><small class="field-note key-note"></small><label class="clear-key"><input data-field="clear_api_key" type="checkbox"><span>删除已保存密钥</span></label></div>
           </div>
         </article>
 
-        <article class="model-card" data-model="entities">
+        <article class="model-card" data-model="entities" data-capability="chat">
           <header class="model-head">
             <div><div class="model-kind">LLM</div><h3>实体抽取</h3></div>
             <label class="switch"><input data-field="enabled" type="checkbox"><span class="switch-track" aria-hidden="true"></span><span>启用</span></label>
           </header>
           <div class="model-fields">
-            <label class="field full"><span class="field-label">接口地址</span><input data-field="base_url" type="url" spellcheck="false" autocomplete="off" placeholder="http://localhost:1234/v1"></label>
-            <label class="field"><span class="field-label">模型</span><input data-field="model" type="text" spellcheck="false" autocomplete="off"></label>
-            <div class="field"><span class="field-label">API Key</span><input data-field="api_key" type="password" autocomplete="new-password"><small class="field-note key-note"></small><label class="clear-key"><input data-field="clear_api_key" type="checkbox"><span>删除已保存密钥</span></label></div>
+            <label class="field full"><span class="field-label">调用方式</span><select data-field="mode"><option value="openai">OpenAI API</option><option value="local">项目本地模型</option></select></label>
+            <label class="field full model-local"><span class="field-label">本地模型</span><select data-field="local_model"></select><small class="field-note">模型先在上方加载到内存，未加载的选择将在调用时提示。</small></label>
+            <div class="field full model-local"><div class="model-local-actions"><button type="button" data-model-action="load">加载到内存</button><button type="button" data-model-action="unload">卸载</button><span class="model-local-state" data-local-state></span></div></div>
+            <label class="field full model-api"><span class="field-label">接口地址</span><input data-field="base_url" type="url" spellcheck="false" autocomplete="off" placeholder="https://api.openai.com/v1"></label>
+            <label class="field model-api"><span class="field-label">模型</span><input data-field="model" type="text" spellcheck="false" autocomplete="off"></label>
+            <div class="field model-api"><span class="field-label">API Key</span><input data-field="api_key" type="password" autocomplete="new-password"><small class="field-note key-note"></small><label class="clear-key"><input data-field="clear_api_key" type="checkbox"><span>删除已保存密钥</span></label></div>
           </div>
         </article>
 
-        <article class="model-card" data-model="fallback">
+        <article class="model-card" data-model="fallback" data-capability="chat">
           <header class="model-head">
             <div><div class="model-kind">LLM</div><h3>提取兜底</h3></div>
             <label class="switch"><input data-field="enabled" type="checkbox"><span class="switch-track" aria-hidden="true"></span><span>启用</span></label>
           </header>
           <div class="model-fields">
-            <label class="field full"><span class="field-label">接口地址</span><input data-field="base_url" type="url" spellcheck="false" autocomplete="off" placeholder="http://localhost:1234/v1"></label>
-            <label class="field"><span class="field-label">模型</span><input data-field="model" type="text" spellcheck="false" autocomplete="off"></label>
-            <div class="field"><span class="field-label">API Key</span><input data-field="api_key" type="password" autocomplete="new-password"><small class="field-note key-note"></small><label class="clear-key"><input data-field="clear_api_key" type="checkbox"><span>删除已保存密钥</span></label></div>
+            <label class="field full"><span class="field-label">调用方式</span><select data-field="mode"><option value="openai">OpenAI API</option><option value="local">项目本地模型</option></select></label>
+            <label class="field full model-local"><span class="field-label">本地模型</span><select data-field="local_model"></select><small class="field-note">模型先在上方加载到内存，未加载的选择将在调用时提示。</small></label>
+            <div class="field full model-local"><div class="model-local-actions"><button type="button" data-model-action="load">加载到内存</button><button type="button" data-model-action="unload">卸载</button><span class="model-local-state" data-local-state></span></div></div>
+            <label class="field full model-api"><span class="field-label">接口地址</span><input data-field="base_url" type="url" spellcheck="false" autocomplete="off" placeholder="https://api.openai.com/v1"></label>
+            <label class="field model-api"><span class="field-label">模型</span><input data-field="model" type="text" spellcheck="false" autocomplete="off"></label>
+            <div class="field model-api"><span class="field-label">API Key</span><input data-field="api_key" type="password" autocomplete="new-password"><small class="field-note key-note"></small><label class="clear-key"><input data-field="clear_api_key" type="checkbox"><span>删除已保存密钥</span></label></div>
           </div>
         </article>
 
-        <article class="model-card" data-model="vision">
+        <article class="model-card" data-model="vision" data-capability="vision">
           <header class="model-head">
             <div><div class="model-kind">视觉</div><h3>图片理解</h3></div>
             <label class="switch"><input data-field="enabled" type="checkbox"><span class="switch-track" aria-hidden="true"></span><span>启用</span></label>
           </header>
           <div class="model-fields">
-            <label class="field full"><span class="field-label">接口地址</span><input data-field="base_url" type="url" spellcheck="false" autocomplete="off" placeholder="http://localhost:1234/v1"></label>
-            <label class="field"><span class="field-label">模型</span><input data-field="model" type="text" spellcheck="false" autocomplete="off"></label>
-            <div class="field"><span class="field-label">API Key</span><input data-field="api_key" type="password" autocomplete="new-password"><small class="field-note key-note"></small><label class="clear-key"><input data-field="clear_api_key" type="checkbox"><span>删除已保存密钥</span></label></div>
+            <label class="field full"><span class="field-label">调用方式</span><select data-field="mode"><option value="openai">OpenAI API</option><option value="local">项目本地模型</option></select></label>
+            <label class="field full model-local"><span class="field-label">本地模型</span><select data-field="local_model"></select><small class="field-note">模型先在上方加载到内存，未加载的选择将在调用时提示。</small></label>
+            <div class="field full model-local"><div class="model-local-actions"><button type="button" data-model-action="load">加载到内存</button><button type="button" data-model-action="unload">卸载</button><span class="model-local-state" data-local-state></span></div></div>
+            <label class="field full model-api"><span class="field-label">接口地址</span><input data-field="base_url" type="url" spellcheck="false" autocomplete="off" placeholder="https://api.openai.com/v1"></label>
+            <label class="field model-api"><span class="field-label">模型</span><input data-field="model" type="text" spellcheck="false" autocomplete="off"></label>
+            <div class="field model-api"><span class="field-label">API Key</span><input data-field="api_key" type="password" autocomplete="new-password"><small class="field-note key-note"></small><label class="clear-key"><input data-field="clear_api_key" type="checkbox"><span>删除已保存密钥</span></label></div>
           </div>
         </article>
 
-        <article class="model-card" data-model="embedding">
+        <article class="model-card" data-model="embedding" data-capability="embedding">
           <header class="model-head">
             <div><div class="model-kind">向量</div><h3>语义嵌入</h3></div>
             <label class="switch"><input data-field="enabled" type="checkbox"><span class="switch-track" aria-hidden="true"></span><span>启用</span></label>
           </header>
           <div class="model-fields">
-            <label class="field full"><span class="field-label">接口地址</span><input data-field="base_url" type="url" spellcheck="false" autocomplete="off" placeholder="http://localhost:1234/v1"></label>
-            <label class="field"><span class="field-label">模型</span><input data-field="model" type="text" spellcheck="false" autocomplete="off"></label>
-            <div class="field"><span class="field-label">API Key</span><input data-field="api_key" type="password" autocomplete="new-password"><small class="field-note key-note"></small><label class="clear-key"><input data-field="clear_api_key" type="checkbox"><span>删除已保存密钥</span></label></div>
+            <label class="field full"><span class="field-label">调用方式</span><select data-field="mode"><option value="openai">OpenAI API</option><option value="local">项目本地模型</option></select></label>
+            <label class="field full model-local"><span class="field-label">本地模型</span><select data-field="local_model"></select><small class="field-note">模型先在上方加载到内存，未加载的选择将在调用时提示。</small></label>
+            <div class="field full model-local"><div class="model-local-actions"><button type="button" data-model-action="load">加载到内存</button><button type="button" data-model-action="unload">卸载</button><span class="model-local-state" data-local-state></span></div></div>
+            <label class="field full model-api"><span class="field-label">接口地址</span><input data-field="base_url" type="url" spellcheck="false" autocomplete="off" placeholder="https://api.openai.com/v1"></label>
+            <label class="field model-api"><span class="field-label">模型</span><input data-field="model" type="text" spellcheck="false" autocomplete="off"></label>
+            <div class="field model-api"><span class="field-label">API Key</span><input data-field="api_key" type="password" autocomplete="new-password"><small class="field-note key-note"></small><label class="clear-key"><input data-field="clear_api_key" type="checkbox"><span>删除已保存密钥</span></label></div>
           </div>
         </article>
       </div>
@@ -581,11 +702,14 @@
           <div class="integration-fields">
             <label class="field full"><span class="field-label">提供方</span>
               <select id="asrProvider">
-                <option value="faster_whisper">faster-whisper（本地）</option>
-                <option value="openai_compatible">OpenAI 兼容接口（Whisper / 自部署）</option>
+                <option value="local">项目本地模型（MLX / GGUF）</option>
+                <option value="openai_compatible">OpenAI API（Whisper / 兼容服务）</option>
               </select>
             </label>
-            <label class="field"><span class="field-label">模型</span><input id="asrModel" type="text" spellcheck="false" autocomplete="off" placeholder="base"></label>
+            <label class="field full asr-local"><span class="field-label">本地 Whisper 模型</span><select id="asrLocalModel"></select><small class="field-note">将模型放入上方目录并加载到内存后在此选择。</small></label>
+            <div class="field full asr-local"><div class="model-local-actions"><button type="button" id="asrLoadModelButton">加载到内存</button><button type="button" id="asrUnloadModelButton">卸载</button><span class="model-local-state" id="asrLocalState"></span></div></div>
+            <label class="field asr-local"><span class="field-label">本地后端</span><select id="asrLocalBackend"><option value="auto">自动选择</option><option value="faster_whisper">faster-whisper</option><option value="whisper_cpp">whisper.cpp</option><option value="mlx_whisper">MLX Whisper</option></select></label>
+            <label class="field asr-http"><span class="field-label">模型</span><input id="asrModel" type="text" spellcheck="false" autocomplete="off" placeholder="whisper-1"></label>
             <label class="field asr-local"><span class="field-label">运行设备</span>
               <select id="asrDevice"><option value="auto">自动</option><option value="cpu">CPU</option><option value="cuda">CUDA</option></select>
             </label>
@@ -646,10 +770,21 @@
   const connectionState = $('#connectionState');
   const savebarNote = $('#savebarNote');
   const toastElement = $('#toast');
-  const state = { dirty: false, hydrating: false, saving: false, toastTimer: null };
+  const state = {
+    dirty: false,
+    hydrating: false,
+    saving: false,
+    toastTimer: null,
+    modelInventory: { model_dir: '', models: [], runtimes: [] },
+    modelInventoryError: '',
+    modelInventoryLoading: false
+  };
   const MODEL_LABELS = {
     llm: '默认 LLM', agent: '检索 Agent', entities: '实体抽取', fallback: '提取兜底',
     vision: '图片理解', embedding: '语义嵌入'
+  };
+  const CAPABILITY_LABELS = {
+    chat: '对话', embedding: '向量', vision: '视觉', asr: '语音识别'
   };
 
   const DEFAULTS = {
@@ -667,8 +802,8 @@
       languages: 'eng+chi_sim', dpi: 200, endpoint: '', response_path: '', timeout_sec: 180
     },
     asr: {
-      enabled: false, provider: 'faster_whisper', model: 'base', device: 'auto', compute_type: 'int8',
-      base_url: '', endpoint: '', language: '', response_path: '', timeout_sec: 180
+      enabled: false, provider: 'local', model: 'whisper-1', local_model: '', local_backend: 'auto',
+      device: 'auto', compute_type: 'int8', base_url: '', endpoint: '', language: '', response_path: '', timeout_sec: 180
     },
     entities: { enabled: false, max_chars: 12000, max_per_file: 32 },
     agent: { max_steps: 6, max_results: 12 },
@@ -812,18 +947,308 @@
     element.textContent = configured ? '已保存，留空不修改' : '留空不保存密钥';
   }
 
+  function normalizeCapabilities(value) {
+    if (Array.isArray(value)) return value.map(item => toText(item).trim()).filter(Boolean);
+    if (typeof value === 'string') return value.split(/[\s,]+/).map(item => item.trim()).filter(Boolean);
+    return [];
+  }
+
+  function normalizeModelInventory(data) {
+    const source = data && typeof data === 'object' ? data : {};
+    const rawModels = Array.isArray(source.models)
+      ? source.models
+      : Object.values(source.models && typeof source.models === 'object' ? source.models : {});
+    const models = rawModels
+      .filter(item => item && typeof item === 'object' && toText(item.id).trim())
+      .map(item => ({
+        id: toText(item.id).trim(),
+        name: toText(item.name || item.id).trim(),
+        format: toText(item.format).trim().toUpperCase(),
+        size_bytes: Number.isFinite(Number(item.size_bytes)) ? Number(item.size_bytes) : 0,
+        capabilities: normalizeCapabilities(item.capabilities),
+        loaded: item.loaded,
+        loadable: item.loadable !== false,
+        reason: toText(item.reason).trim()
+      }));
+    const runtimes = (Array.isArray(source.runtimes) ? source.runtimes : [])
+      .filter(item => item && typeof item === 'object')
+      .map(item => ({
+        id: toText(item.id).trim(),
+        available: Boolean(item.available),
+        detail: toText(item.detail).trim()
+      }));
+    return { model_dir: toText(source.model_dir).trim(), models, runtimes };
+  }
+
+  function modelForId(id) {
+    return state.modelInventory.models.find(model => model.id === id) || null;
+  }
+
+  function supportsCapability(model, capability) {
+    return !model || !model.capabilities.length || model.capabilities.includes(capability);
+  }
+
+  function isModelLoaded(model, capability) {
+    if (!model) return false;
+    if (typeof model.loaded === 'boolean') return model.loaded;
+    if (Array.isArray(model.loaded)) return model.loaded.includes(capability) || model.loaded.includes('*');
+    if (model.loaded && typeof model.loaded === 'object') {
+      return Boolean(model.loaded[capability] || model.loaded.all || model.loaded['*']);
+    }
+    return false;
+  }
+
+  function formatBytes(value) {
+    if (!Number.isFinite(value) || value <= 0) return '';
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const index = Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1);
+    const amount = value / (1024 ** index);
+    return `${amount >= 10 || index === 0 ? amount.toFixed(0) : amount.toFixed(1)} ${units[index]}`;
+  }
+
+  function capabilityLabel(capability) {
+    return CAPABILITY_LABELS[capability] || capability;
+  }
+
+  function appendOption(select, value, label, selected = false, disabled = false) {
+    const option = document.createElement('option');
+    option.value = value;
+    option.textContent = label;
+    option.selected = selected;
+    option.disabled = disabled;
+    select.append(option);
+  }
+
+  function renderLocalModelSelector(select, capability, requestedId) {
+    const selectedId = toText(requestedId || select.value).trim();
+    const choices = state.modelInventory.models.filter(model => supportsCapability(model, capability));
+    select.replaceChildren();
+    appendOption(select, '', choices.length ? '选择本地模型' : '未发现兼容本地模型', !selectedId, true);
+    choices.forEach(model => {
+      const details = [model.format, formatBytes(model.size_bytes)].filter(Boolean).join(' · ');
+      appendOption(select, model.id, details ? `${model.name}（${details}）` : model.name, model.id === selectedId);
+    });
+    if (selectedId && !choices.some(model => model.id === selectedId)) {
+      appendOption(select, selectedId, `${selectedId}（未发现）`, true);
+    }
+    select.disabled = !choices.length && !selectedId;
+  }
+
+  function selectedModelId(card) {
+    return toText(card.querySelector('[data-field="local_model"]').value).trim();
+  }
+
+  function setLocalState(element, model, capability) {
+    if (!element) return;
+    if (!model) {
+      element.textContent = '请选择模型';
+      element.className = 'model-local-state';
+      return;
+    }
+    if (!supportsCapability(model, capability)) {
+      element.textContent = '此模型不支持该用途';
+      element.className = 'model-local-state error';
+      return;
+    }
+    if (isModelLoaded(model, capability)) {
+      element.textContent = '已加载到内存';
+      element.className = 'model-local-state loaded';
+      return;
+    }
+    element.textContent = model.loadable ? '尚未加载' : (model.reason || '当前环境不可加载');
+    element.className = `model-local-state${model.loadable ? '' : ' error'}`;
+  }
+
+  function updateLocalModelStates() {
+    modelCards.forEach(card => {
+      const model = modelForId(selectedModelId(card));
+      setLocalState(card.querySelector('[data-local-state]'), model, card.dataset.capability);
+      const load = card.querySelector('[data-model-action="load"]');
+      const unload = card.querySelector('[data-model-action="unload"]');
+      if (load) load.disabled = !model || !model.loadable || !supportsCapability(model, card.dataset.capability);
+      if (unload) unload.disabled = !model || !isModelLoaded(model, card.dataset.capability);
+    });
+    const asrModel = modelForId(valueOf('asrLocalModel'));
+    setLocalState($('#asrLocalState'), asrModel, 'asr');
+    $('#asrLoadModelButton').disabled = !asrModel || !asrModel.loadable || !supportsCapability(asrModel, 'asr');
+    $('#asrUnloadModelButton').disabled = !asrModel || !isModelLoaded(asrModel, 'asr');
+  }
+
+  function renderLocalModelSelectors() {
+    modelCards.forEach(card => {
+      const select = card.querySelector('[data-field="local_model"]');
+      const requestedId = card.dataset.localModelId || select.value;
+      renderLocalModelSelector(select, card.dataset.capability, requestedId);
+      card.dataset.localModelId = select.value;
+    });
+    const asrSelect = $('#asrLocalModel');
+    const asrRequestedId = asrSelect.dataset.modelId || asrSelect.value;
+    renderLocalModelSelector(asrSelect, 'asr', asrRequestedId);
+    asrSelect.dataset.modelId = asrSelect.value;
+    updateLocalModelStates();
+  }
+
+  function syncModelSourceFields() {
+    modelCards.forEach(card => {
+      const isLocal = card.querySelector('[data-field="mode"]').value === 'local';
+      card.querySelectorAll('.model-api').forEach(field => { field.hidden = isLocal; });
+      card.querySelectorAll('.model-local').forEach(field => { field.hidden = !isLocal; });
+    });
+    updateLocalModelStates();
+  }
+
+  function makeMeta(text, className = 'model-meta') {
+    const item = document.createElement('span');
+    item.className = className;
+    item.textContent = text;
+    return item;
+  }
+
+  function renderRuntimeList() {
+    const list = $('#runtimeList');
+    list.replaceChildren();
+    if (!state.modelInventory.runtimes.length) {
+      list.append(makeMeta('未报告本地运行时', 'runtime-chip'));
+      return;
+    }
+    state.modelInventory.runtimes.forEach(runtime => {
+      const text = [runtime.id || '运行时', runtime.detail].filter(Boolean).join(' · ');
+      list.append(makeMeta(text, `runtime-chip ${runtime.available ? 'available' : 'unavailable'}`));
+    });
+  }
+
+  function renderModelLibrary() {
+    const directory = state.modelInventory.model_dir || '尚未返回模型目录';
+    $('#modelDirectory').textContent = directory;
+    renderRuntimeList();
+    const list = $('#modelLibraryList');
+    list.replaceChildren();
+
+    if (!state.modelInventory.models.length) {
+      const empty = document.createElement('div');
+      empty.className = 'model-library-empty';
+      empty.textContent = state.modelInventoryError || '未发现模型文件。放入项目模型目录后点击“刷新模型”。';
+      list.append(empty);
+      renderLocalModelSelectors();
+      return;
+    }
+
+    state.modelInventory.models.forEach(model => {
+      const row = document.createElement('article');
+      row.className = 'managed-model';
+      const details = document.createElement('div');
+      const name = document.createElement('div');
+      name.className = 'managed-model-name';
+      name.textContent = model.name;
+      const id = document.createElement('div');
+      id.className = 'managed-model-id';
+      id.textContent = model.id;
+      const meta = document.createElement('div');
+      meta.className = 'managed-model-meta';
+      if (model.format) meta.append(makeMeta(model.format));
+      const size = formatBytes(model.size_bytes);
+      if (size) meta.append(makeMeta(size));
+      (model.capabilities.length ? model.capabilities : ['未识别用途']).forEach(capability => {
+        meta.append(makeMeta(capabilityLabel(capability)));
+      });
+      meta.append(makeMeta(isModelLoaded(model, 'chat') || isModelLoaded(model, 'embedding') || isModelLoaded(model, 'vision') || isModelLoaded(model, 'asr') ? '已加载' : '未加载', isModelLoaded(model, 'chat') || isModelLoaded(model, 'embedding') || isModelLoaded(model, 'vision') || isModelLoaded(model, 'asr') ? 'model-status loaded' : 'model-status'));
+      if (model.reason) meta.append(makeMeta(model.reason, model.loadable ? 'model-meta' : 'model-status unavailable'));
+      details.append(name, id, meta);
+
+      const actions = document.createElement('div');
+      actions.className = 'managed-model-actions';
+      const capability = document.createElement('select');
+      capability.setAttribute('aria-label', `${model.name} 的加载用途`);
+      const capabilities = model.capabilities.length ? model.capabilities : ['chat', 'embedding', 'vision', 'asr'];
+      capabilities.forEach(value => appendOption(capability, value, capabilityLabel(value), value === capabilities[0]));
+      const load = document.createElement('button');
+      load.type = 'button';
+      load.textContent = '加载';
+      const unload = document.createElement('button');
+      unload.type = 'button';
+      unload.textContent = '卸载';
+      const updateButtons = () => {
+        load.disabled = !model.loadable || isModelLoaded(model, capability.value) || state.modelInventoryLoading;
+        unload.disabled = !isModelLoaded(model, capability.value) || state.modelInventoryLoading;
+      };
+      capability.addEventListener('change', updateButtons);
+      load.addEventListener('click', () => manageModel(model.id, capability.value, 'load', load));
+      unload.addEventListener('click', () => manageModel(model.id, capability.value, 'unload', unload));
+      updateButtons();
+      actions.append(capability, load, unload);
+      row.append(details, actions);
+      list.append(row);
+    });
+    renderLocalModelSelectors();
+  }
+
+  async function loadModelInventory(silent = false) {
+    if (state.modelInventoryLoading) return;
+    state.modelInventoryLoading = true;
+    $('#refreshModelsButton').disabled = true;
+    try {
+      const response = await fetch('/api/models', { cache: 'no-store' });
+      const data = await responseData(response);
+      if (!response.ok || data.ok === false) throw new Error(errorMessage(data, '无法读取项目模型库'));
+      state.modelInventory = normalizeModelInventory(data);
+      state.modelInventoryError = '';
+      renderModelLibrary();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '无法读取项目模型库';
+      state.modelInventoryError = message;
+      renderModelLibrary();
+      if (!silent) showToast(message, true);
+    } finally {
+      state.modelInventoryLoading = false;
+      $('#refreshModelsButton').disabled = false;
+      renderModelLibrary();
+    }
+  }
+
+  async function manageModel(modelId, capability, action, trigger) {
+    if (!modelId) {
+      showToast('请选择本地模型', true);
+      return;
+    }
+    const previousText = trigger ? trigger.textContent : '';
+    if (trigger) trigger.disabled = true;
+    try {
+      const response = await fetch(`/api/models/${action}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model_id: modelId, capability })
+      });
+      const data = await responseData(response);
+      if (!response.ok || data.ok === false) throw new Error(errorMessage(data, `${action === 'load' ? '加载' : '卸载'}模型失败`));
+      await loadModelInventory(true);
+      showToast(action === 'load' ? '模型已加载到内存' : '模型已卸载');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '模型操作失败';
+      showToast(message, true);
+    } finally {
+      if (trigger) {
+        trigger.textContent = previousText;
+        updateLocalModelStates();
+      }
+    }
+  }
+
   function hydrateModels(models) {
     modelCards.forEach(card => {
       const key = card.dataset.model;
       const cfg = models[key] && typeof models[key] === 'object' ? models[key] : {};
       card.querySelector('[data-field="enabled"]').checked = Boolean(cfg.enabled);
+      card.querySelector('[data-field="mode"]').value = cfg.mode === 'local' ? 'local' : 'openai';
       card.querySelector('[data-field="base_url"]').value = toText(cfg.base_url);
       card.querySelector('[data-field="model"]').value = toText(cfg.model);
+      card.dataset.localModelId = toText(cfg.local_model).trim();
       const keyInput = card.querySelector('[data-field="api_key"]');
       keyInput.value = '';
       card.querySelector('[data-field="clear_api_key"]').checked = false;
       setKeyNote(card.querySelector('.key-note'), Boolean(cfg.api_key_configured));
     });
+    renderLocalModelSelectors();
+    syncModelSourceFields();
   }
 
   function syncProviderFields() {
@@ -834,11 +1259,13 @@
     const asrRemote = valueOf('asrProvider') === 'openai_compatible';
     document.querySelectorAll('.asr-local').forEach(field => { field.hidden = asrRemote; });
     document.querySelectorAll('.asr-http').forEach(field => { field.hidden = !asrRemote; });
+    updateLocalModelStates();
   }
 
   function hydrate(rawSettings) {
     const settings = normalizeSettings(rawSettings);
     state.hydrating = true;
+    if (settings.model_dir) state.modelInventory.model_dir = toText(settings.model_dir);
     setInputValue('dbPath', settings.db_path);
     renderFolders(settings.folders);
     setInputValue('exclude', Array.isArray(settings.exclude) ? settings.exclude.join(', ') : settings.exclude);
@@ -864,8 +1291,10 @@
     setKeyNote($('#ocrKeyNote'), Boolean(settings.ocr.api_key_configured));
 
     setChecked('asrEnabled', settings.asr.enabled);
-    setInputValue('asrProvider', settings.asr.provider);
+    setInputValue('asrProvider', settings.asr.provider === 'openai_compatible' ? 'openai_compatible' : 'local');
     setInputValue('asrModel', settings.asr.model);
+    $('#asrLocalModel').dataset.modelId = toText(settings.asr.local_model).trim();
+    setInputValue('asrLocalBackend', settings.asr.local_backend || 'auto');
     setInputValue('asrDevice', settings.asr.device);
     setInputValue('asrComputeType', settings.asr.compute_type);
     setInputValue('asrBaseUrl', settings.asr.base_url);
@@ -884,16 +1313,20 @@
     setInputValue('agentMaxResults', settings.agent.max_results);
     setChecked('fallbackEnabled', settings.agent_fallback.enabled);
     setInputValue('fallbackMaxBytes', settings.agent_fallback.max_bytes);
+    renderModelLibrary();
     syncProviderFields();
     state.hydrating = false;
   }
 
   function modelPayload(card) {
+    const mode = card.querySelector('[data-field="mode"]').value === 'local' ? 'local' : 'openai';
     const output = {
       enabled: card.querySelector('[data-field="enabled"]').checked,
+      mode,
       base_url: card.querySelector('[data-field="base_url"]').value.trim(),
       model: card.querySelector('[data-field="model"]').value.trim()
     };
+    if (mode === 'local') output.local_model = selectedModelId(card);
     const clearApiKey = card.querySelector('[data-field="clear_api_key"]').checked;
     const apiKey = card.querySelector('[data-field="api_key"]').value.trim();
     if (clearApiKey) output.clear_api_key = true;
@@ -924,6 +1357,8 @@
       enabled: $('#asrEnabled').checked,
       provider: valueOf('asrProvider'),
       model: valueOf('asrModel'),
+      local_model: valueOf('asrLocalModel'),
+      local_backend: valueOf('asrLocalBackend'),
       device: valueOf('asrDevice'),
       compute_type: valueOf('asrComputeType'),
       base_url: valueOf('asrBaseUrl'),
@@ -969,12 +1404,14 @@
     if (!payload.folders.length) return '请至少添加一个索引目录';
     if (payload.chunk_overlap >= payload.chunk_size) return '向量分块重叠必须小于分块大小';
     for (const [key, model] of Object.entries(payload.models)) {
-      if (model.enabled && (!model.base_url || !model.model)) return `请补全${MODEL_LABELS[key] || key}模型的接口地址和模型名`;
+      if (!model.enabled) continue;
+      if (model.mode === 'local' && !model.local_model) return `请选择${MODEL_LABELS[key] || key}的本地模型`;
+      if (model.mode !== 'local' && (!model.base_url || !model.model)) return `请补全${MODEL_LABELS[key] || key}模型的接口地址和模型名`;
     }
     if (payload.ocr.enabled && payload.ocr.provider === 'tesseract' && !payload.ocr.command) return '请填写 OCR 命令';
     if (payload.ocr.enabled && payload.ocr.provider === 'local_http' && !payload.ocr.endpoint) return '请填写 OCR 接口地址';
-    if (payload.asr.enabled && payload.asr.provider === 'openai_compatible' && !payload.asr.base_url && !payload.asr.endpoint) return '请填写语音识别接口地址';
-    if (payload.asr.enabled && payload.asr.provider === 'faster_whisper' && !payload.asr.model) return '请填写本地 Whisper 模型';
+    if (payload.asr.enabled && payload.asr.provider === 'openai_compatible' && !payload.asr.base_url && !payload.asr.endpoint) return '请填写语音识别 API 地址';
+    if (payload.asr.enabled && payload.asr.provider === 'local' && !payload.asr.local_model) return '请选择本地 Whisper 模型';
     return '';
   }
 
@@ -1045,6 +1482,7 @@
       const data = await responseData(response);
       if (!response.ok || data.ok === false || !data.settings) throw new Error(errorMessage(data, '无法加载设置'));
       hydrate(data.settings);
+      await loadModelInventory(true);
       markClean('设置已加载');
     } catch (error) {
       const message = error instanceof Error ? error.message : '无法连接服务';
@@ -1058,9 +1496,28 @@
   });
   form.addEventListener('change', event => {
     if (event.target === $('#ocrProvider') || event.target === $('#asrProvider')) syncProviderFields();
+    if (event.target.matches('[data-field="mode"]')) syncModelSourceFields();
+    if (event.target.matches('[data-field="local_model"]')) {
+      event.target.closest('[data-model]').dataset.localModelId = event.target.value;
+      updateLocalModelStates();
+    }
+    if (event.target === $('#asrLocalModel')) {
+      event.target.dataset.modelId = event.target.value;
+      updateLocalModelStates();
+    }
     markDirty();
   });
+  form.addEventListener('click', event => {
+    const button = event.target.closest('button[data-model-action]');
+    if (!button) return;
+    const card = button.closest('[data-model]');
+    if (!card) return;
+    manageModel(selectedModelId(card), card.dataset.capability, button.dataset.modelAction, button);
+  });
   $('#addFolder').addEventListener('click', addFolders);
+  $('#refreshModelsButton').addEventListener('click', () => loadModelInventory());
+  $('#asrLoadModelButton').addEventListener('click', () => manageModel(valueOf('asrLocalModel'), 'asr', 'load', $('#asrLoadModelButton')));
+  $('#asrUnloadModelButton').addEventListener('click', () => manageModel(valueOf('asrLocalModel'), 'asr', 'unload', $('#asrUnloadModelButton')));
   $('#newFolder').addEventListener('keydown', event => {
     if (event.key === 'Enter') {
       event.preventDefault();
@@ -1075,6 +1532,8 @@
     event.returnValue = '';
   });
 
+  renderModelLibrary();
+  syncModelSourceFields();
   syncProviderFields();
   loadSettings();
 })();

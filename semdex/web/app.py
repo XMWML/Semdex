@@ -8,6 +8,9 @@
   POST /api/rebuild                  清空派生索引并完整重建（已在跑则 409）
   GET  /api/content?file_id=         查看某文件提取出的全文
   POST /api/open   {path, reveal}    用系统默认程序打开 / 在访达中显示
+  GET  /api/models                  扫描项目模型目录并返回加载状态
+  POST /api/models/load             将一个本地模型加载到当前进程内存
+  POST /api/models/unload           卸载一个本地模型或其用途运行时
   GET  /api/settings                 返回设置（不含密钥）
   PUT  /api/settings                 校验、原子保存并热加载设置
 """
@@ -27,6 +30,7 @@ from ..config import Config
 from ..db import Database
 from ..models import ModelNotConfigured, ModelUnavailable
 from ..modelclient import embedding_identity
+from ..localmodels import get_local_model_manager
 from ..search import search as do_search
 from ..agent import ask as do_ask
 from ..settings import save_settings, settings_dict
@@ -41,6 +45,12 @@ class OpenReq(BaseModel):
 
 class SettingsReq(BaseModel):
     settings: dict[str, Any]
+
+
+class LocalModelReq(BaseModel):
+    model_id: str
+    capability: str | None = None
+    backend: str = "auto"
 
 
 def create_app(config: Config) -> FastAPI:
@@ -152,6 +162,39 @@ def create_app(config: Config) -> FastAPI:
     def api_settings():
         return {"ok": True, "settings": settings_dict(current_config())}
 
+    @app.get("/api/models")
+    def api_models():
+        """Discover project-local model files without importing native runtimes."""
+        try:
+            return {"ok": True, **get_local_model_manager(current_config().model_dir).catalog()}
+        except (OSError, ValueError) as e:
+            return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+
+    @app.post("/api/models/load")
+    def api_model_load(req: LocalModelReq):
+        active_config = current_config()
+        capability = (req.capability or "chat").strip().lower()
+        kwargs: dict[str, Any] = {"backend": req.backend}
+        if capability == "asr":
+            kwargs.update({"device": active_config.asr.device, "compute_type": active_config.asr.compute_type})
+        try:
+            result = get_local_model_manager(active_config.model_dir).load(
+                req.model_id, capability, **kwargs
+            )
+            return {"ok": True, "model": result}
+        except (ModelNotConfigured, ModelUnavailable, ValueError, OSError) as e:
+            return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+
+    @app.post("/api/models/unload")
+    def api_model_unload(req: LocalModelReq):
+        try:
+            result = get_local_model_manager(current_config().model_dir).unload(
+                req.model_id, req.capability
+            )
+            return {"ok": True, "model": result}
+        except (ModelNotConfigured, ModelUnavailable, ValueError, OSError) as e:
+            return JSONResponse({"ok": False, "error": str(e)}, status_code=400)
+
     @app.put("/api/settings")
     def api_save_settings(req: SettingsReq):
         nonlocal config
@@ -249,9 +292,14 @@ def create_app(config: Config) -> FastAPI:
             db.close()
         if row is None:
             raise HTTPException(404, "路径不在索引中")  # 防任意路径
-        if sys.platform != "darwin":
-            raise HTTPException(501, "仅支持 macOS")
-        cmd = ["open", "-R", req.path] if req.reveal else ["open", req.path]
+        if sys.platform == "darwin":
+            cmd = ["open", "-R", req.path] if req.reveal else ["open", req.path]
+        elif sys.platform.startswith("linux"):
+            cmd = ["xdg-open", str(Path(req.path).parent if req.reveal else Path(req.path))]
+        elif sys.platform == "win32":
+            cmd = ["explorer.exe", f"/select,{req.path}"] if req.reveal else ["explorer.exe", req.path]
+        else:
+            raise HTTPException(501, "当前系统没有可用的文件管理器适配")
         subprocess.Popen(cmd)
         return {"ok": True}
 

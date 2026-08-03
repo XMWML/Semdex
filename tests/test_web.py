@@ -317,12 +317,61 @@ def test_settings_api_can_clear_saved_model_and_capability_keys(tmp_path: Path):
     assert returned["models"]["agent"]["api_key_configured"] is False
     assert returned["ocr"]["api_key_configured"] is False
     assert returned["asr"]["api_key_configured"] is False
-
     saved = load_config(config_path)
     assert saved.agent_model.api_key == ""
     assert saved.ocr.api_key == ""
     assert saved.asr.api_key == ""
 
+
+def test_local_model_management_api_exposes_catalog_and_lifecycle(tmp_path: Path, monkeypatch):
+    class FakeManager:
+        def catalog(self):
+            return {
+                "model_dir": str(tmp_path / "models"),
+                "models": [{
+                    "id": "qwen.gguf",
+                    "name": "qwen.gguf",
+                    "format": "gguf",
+                    "size_bytes": 4,
+                    "capabilities": ["chat", "embedding"],
+                    "loaded": [],
+                    "loadable": True,
+                    "reason": "",
+                }],
+                "runtimes": [],
+            }
+
+        def load(self, model_id, capability, **kwargs):
+            assert model_id == "qwen.gguf"
+            assert capability == "chat"
+            assert kwargs["backend"] == "auto"
+            return {"id": model_id, "loaded": [capability]}
+
+        def unload(self, model_id, capability):
+            assert model_id == "qwen.gguf"
+            assert capability == "chat"
+            return {"id": model_id, "loaded": []}
+
+    monkeypatch.setattr("semdex.web.app.get_local_model_manager", lambda _path: FakeManager())
+    cfg = Config(db_path=tmp_path / "index.db", model_dir=tmp_path / "models")
+
+    async def request():
+        transport = httpx.ASGITransport(app=create_app(cfg))
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            catalog = await client.get("/api/models")
+            loaded = await client.post("/api/models/load", json={
+                "model_id": "qwen.gguf", "capability": "chat",
+            })
+            unloaded = await client.post("/api/models/unload", json={
+                "model_id": "qwen.gguf", "capability": "chat",
+            })
+        return catalog, loaded, unloaded
+
+    catalog, loaded, unloaded = asyncio.run(request())
+    assert catalog.status_code == 200
+    assert catalog.json()["models"][0]["format"] == "gguf"
+    assert loaded.json() == {"ok": True, "model": {"id": "qwen.gguf", "loaded": ["chat"]}}
+    assert unloaded.json() == {"ok": True, "model": {"id": "qwen.gguf", "loaded": []}}
 
 @pytest.mark.parametrize(
     ("base_url", "model"),

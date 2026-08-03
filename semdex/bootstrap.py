@@ -61,8 +61,18 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="用项目内目录启动 Semdex，避免 uv 和模型下载写入用户目录。"
     )
-    parser.add_argument("--web", action="store_true", help="启动原有 WebUI，而非原生桌面界面")
+    ui = parser.add_mutually_exclusive_group()
+    ui.add_argument("--ui", choices=("native", "web"), default="native", help="选择原生界面或 WebUI")
+    ui.add_argument("--web", action="store_const", const="web", dest="ui", help="兼容旧版：启动 WebUI")
+    ui.add_argument("--native", action="store_const", const="native", dest="ui", help="启动原生界面")
     parser.add_argument("--with-asr", action="store_true", help="同时安装 faster-whisper 可选依赖")
+    parser.add_argument("--with-gguf", action="store_true", help="同时安装 GGUF 本地模型运行时")
+    parser.add_argument("--with-mlx", action="store_true", help="同时安装 MLX 本地模型运行时（仅 macOS 可用）")
+    parser.add_argument(
+        "--with-local-models",
+        action="store_true",
+        help="同时安装可用的 GGUF 和 MLX 本地模型运行时",
+    )
     parser.add_argument("--sync-only", action="store_true", help="只同步依赖，不启动界面")
     return parser
 
@@ -79,10 +89,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
 
     extras: list[str] = []
-    if not args.web:
+    if args.ui == "native":
         extras.append("gui")
     if args.with_asr:
         extras.append("asr")
+    if args.with_gguf or args.with_local_models:
+        extras.append("gguf")
+    if args.with_mlx or args.with_local_models:
+        extras.append("mlx")
 
     sync_command = [uv, "sync"]
     for extra in extras:
@@ -95,5 +109,5 @@ def main(argv: Sequence[str] | None = None) -> int:
     run_command = [uv, "run"]
     for extra in extras:
         run_command.extend(["--extra", extra])
-    run_command.extend(["semdex", "serve" if args.web else "gui"])
+    run_command.extend(["semdex", "serve" if args.ui == "web" else "gui"])
     return subprocess.run(run_command, cwd=root, env=environment).returncode

@@ -57,42 +57,54 @@ reconcile_sec = 86400
 
 [models.llm]        # 旧版通用对话模型；未单独配置时，下面三项会继承它
 enabled = false
+mode = "openai"      # "openai"（OpenAI 兼容 API）或 "local"（项目 models 目录）
 base_url = "http://localhost:1234/v1"
 api_key = "lm-studio"
 model = "qwen2.5-7b-instruct"
+local_model = ""     # mode = "local" 时填写 models/ 下的相对路径
 
 # 三个使用 LLM 的功能可分别选择模型。保持小节缺失会回退到 [models.llm]，
 # 所以旧版配置不需要迁移，且只启用上面的 llm 仍可供三项功能使用。
 # 要单独覆盖某一功能时，取消下面对应五行的注释并填写实际模型：
 # [models.agent]      # 自然语言检索助手
 # enabled = true
+# mode = "local"
 # base_url = "http://localhost:1234/v1"
 # api_key = "lm-studio"
 # model = "qwen2.5-7b-instruct"
+# local_model = "Qwen3-1.7B-MLX-8bit"
 #
 # [models.entities]   # 实体抽取
 # enabled = true
+# mode = "openai"
 # base_url = "http://localhost:1234/v1"
 # api_key = "lm-studio"
 # model = "qwen2.5-7b-instruct"
+# local_model = ""
 #
 # [models.fallback]   # 未知文本格式的摘要兜底
 # enabled = true
+# mode = "openai"
 # base_url = "http://localhost:1234/v1"
 # api_key = "lm-studio"
 # model = "qwen2.5-7b-instruct"
+# local_model = ""
 
 [models.vision]     # 视觉模型（图片 → 文字描述）
 enabled = false
+mode = "openai"
 base_url = "http://localhost:1234/v1"
 api_key = "lm-studio"
 model = "qwen2-vl-7b-instruct"
+local_model = ""
 
 [models.embedding]  # 向量模型（语义搜索）
 enabled = false
+mode = "openai"
 base_url = "http://localhost:1234/v1"
 api_key = "lm-studio"
 model = "text-embedding-bge-m3"
+local_model = ""
 
 [chunking]
 chunk_size = 800     # 每块字符数
@@ -113,12 +125,14 @@ dpi = 200
 # response_path = "text" # JSON 响应中的点路径，例如 result.text 或 data.0.text
 # timeout_sec = 180
 
-# ASR 可使用 faster-whisper（uv sync --extra asr），或 OpenAI 兼容转写接口。
+# ASR 可使用项目 models 目录内的 Whisper 模型，或 OpenAI 兼容转写接口。
 # provider = "openai_compatible" 时，endpoint 为空会使用 base_url + /audio/transcriptions。
 [asr]
 enabled = false
-provider = "faster_whisper" # "faster_whisper" 或 "openai_compatible"
-model = "base"
+provider = "local" # "local" 或 "openai_compatible"（兼容旧值 faster_whisper）
+local_backend = "auto" # auto / faster_whisper / mlx_whisper / whisper_cpp
+local_model = "" # models/ 下的 Whisper 模型相对路径
+model = "" # OpenAI 兼容接口的 model 名称；local 模式可留空
 device = "auto"
 compute_type = "int8"
 # base_url = "http://localhost:1234/v1"
@@ -162,6 +176,14 @@ class ModelCfg:
     base_url: str = "http://localhost:1234/v1"
     api_key: str = "lm-studio"
     model: str = ""
+    # ``openai`` keeps the historical OpenAI-compatible path; ``local`` uses
+    # ``local_model`` below ``Config.model_dir``.  ``provider`` is accepted by
+    # settings/API callers as an alias, but ``mode`` is the persisted field.
+    mode: str = "openai"
+    local_model: str = ""
+    # Filled by Config.__post_init__ so existing ModelClient(cfg, kind) calls
+    # continue to work even when a caller chooses a custom model directory.
+    local_model_dir: Path | None = field(default=None, repr=False, compare=False)
 
 
 @dataclass
@@ -198,6 +220,11 @@ class AsrCfg:
     language: str = ""
     response_path: str = "text"
     timeout_sec: int = 180
+    # New local-model selection; ``model`` remains the OpenAI API model name
+    # (and is used as a legacy faster-whisper model identifier when needed).
+    local_model: str = ""
+    local_backend: str = "auto"
+    local_model_dir: Path | None = field(default=None, repr=False, compare=False)
 
 
 @dataclass
@@ -258,6 +285,17 @@ class Config:
             self.entities_model = _copy_model_cfg(self.llm)
         if self.fallback_model is None:
             self.fallback_model = _copy_model_cfg(self.llm)
+        for model in (
+            self.llm,
+            self.agent_model,
+            self.entities_model,
+            self.fallback_model,
+            self.vision,
+            self.embedding,
+        ):
+            if model is not None:
+                model.local_model_dir = self.model_dir
+        self.asr.local_model_dir = self.model_dir
         self.ocr.temp_dir = self.temp_dir
 
 
@@ -293,11 +331,25 @@ def _positive_int(d: dict, key: str, default: int, section: str, minimum: int = 
 
 
 def _model_cfg(d: dict, section: str = "models.llm") -> ModelCfg:
+    raw_mode = d.get("mode", d.get("provider", "openai"))
+    if not isinstance(raw_mode, str):
+        raise ValueError(f"[{section}] mode 必须是 openai 或 local")
+    mode = raw_mode.strip().lower()
+    if mode in {"openai_compatible", "api", "openai-compatible"}:
+        mode = "openai"
+    if mode not in {"openai", "local"}:
+        raise ValueError(f"[{section}] mode 必须是 openai 或 local")
+    enabled = _bool(d, "enabled", False, section)
+    local_model = _string(d, "local_model", "", section).strip()
+    if enabled and mode == "local" and not local_model:
+        raise ValueError(f"[{section}] local 模式启用时必须配置 local_model")
     return ModelCfg(
-        enabled=_bool(d, "enabled", False, section),
+        enabled=enabled,
         base_url=_string(d, "base_url", "http://localhost:1234/v1", section).rstrip("/"),
         api_key=_string(d, "api_key", "lm-studio", section),
         model=_string(d, "model", "", section),
+        mode=mode,
+        local_model=local_model,
     )
 
 
@@ -308,6 +360,8 @@ def _copy_model_cfg(cfg: ModelCfg) -> ModelCfg:
         base_url=cfg.base_url,
         api_key=cfg.api_key,
         model=cfg.model,
+        mode=cfg.mode,
+        local_model=cfg.local_model,
     )
 
 
@@ -335,17 +389,41 @@ def _ocr_cfg(d: dict) -> OcrCfg:
 
 def _asr_cfg(d: dict) -> AsrCfg:
     provider = _string(d, "provider", "faster_whisper", "asr").strip().lower()
-    if provider not in {"faster_whisper", "openai_compatible"}:
-        raise ValueError("[asr] provider 必须是 faster_whisper 或 openai_compatible")
+    original_provider = provider
+    legacy_local = provider in {"faster_whisper", "faster-whisper", "mlx_whisper", "mlx-whisper", "whisper-cpp", "whisper_cpp", "gguf"}
+    if legacy_local:
+        legacy_local = True
+        provider = "local"
+    if provider not in {"local", "openai_compatible"}:
+        raise ValueError("[asr] provider 必须是 local 或 openai_compatible")
     enabled = _bool(d, "enabled", False, "asr")
     endpoint = _string(d, "endpoint", "", "asr").strip()
     base_url = _string(d, "base_url", "http://localhost:1234/v1", "asr").strip().rstrip("/")
     if enabled and provider == "openai_compatible" and not endpoint and not base_url:
         raise ValueError("[asr] openai_compatible 需要配置 endpoint 或 base_url")
+    legacy_backend = {
+        "mlx_whisper": "mlx_whisper",
+        "mlx-whisper": "mlx_whisper",
+        "whisper-cpp": "whisper_cpp",
+        "whisper_cpp": "whisper_cpp",
+        "gguf": "whisper_cpp",
+    }.get(original_provider, "faster_whisper")
+    backend = _string(d, "local_backend", legacy_backend if legacy_local else "auto", "asr").strip().lower()
+    backend_aliases = {
+        "faster-whisper": "faster_whisper",
+        "mlx-whisper": "mlx_whisper",
+        "whisper-cpp": "whisper_cpp",
+        "gguf": "whisper_cpp",
+    }
+    backend = backend_aliases.get(backend, backend)
+    if backend not in {"auto", "faster_whisper", "mlx_whisper", "whisper_cpp"}:
+        raise ValueError("[asr] local_backend 必须是 auto、faster_whisper、mlx_whisper 或 whisper_cpp")
+    model = _string(d, "model", "base", "asr")
+    local_model = _string(d, "local_model", model if legacy_local else "", "asr").strip()
     return AsrCfg(
         enabled=enabled,
         provider=provider,
-        model=_string(d, "model", "base", "asr"),
+        model=model,
         device=_string(d, "device", "auto", "asr"),
         compute_type=_string(d, "compute_type", "int8", "asr"),
         base_url=base_url,
@@ -354,6 +432,8 @@ def _asr_cfg(d: dict) -> AsrCfg:
         language=_string(d, "language", "", "asr"),
         response_path=_string(d, "response_path", "text", "asr").strip() or "text",
         timeout_sec=_positive_int(d, "timeout_sec", 180, "asr"),
+        local_model=local_model,
+        local_backend=backend,
     )
 
 
