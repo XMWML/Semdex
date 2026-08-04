@@ -82,8 +82,8 @@ def run_gui(config_path: str | None = None) -> int:
         )
     except ImportError:
         print(
-            "桌面界面需要 Qt 运行时。请执行 `uv sync --extra gui`，"
-            "或在 macOS 双击 Start Semdex.command。",
+            "桌面界面需要 Qt 运行时。请在项目目录执行 "
+            '`python3 "Start Semdex.py" --sync-only`，然后重新启动。',
             file=sys.stderr,
         )
         return 1
@@ -404,10 +404,11 @@ def run_gui(config_path: str | None = None) -> int:
                 ".safetensors（或 consolidated.*）权重文件。目录名会成为本地模型 ID，并应含 embedding、"
                 "bge、e5、nomic、gte 或 jina 之一（或让 config.json 的模型信息包含这些标识），才能识别为向量模型；"
                 "同时保留该模型的 tokenizer 文件。选择后可在下方按用途提前加载或卸载，未提前加载时会在首次调用时按需加载。"
-                "\n\nMLX 模型还需要运行时，且仅支持 Apple Silicon Mac。若下方运行时中 mlx_lm、"
-                "mlx_embeddings、mlx_vlm 或 mlx_whisper 显示不可用，请先退出 Semdex，在项目目录运行："
-                "python3 \"Start Semdex.py\" --with-mlx --sync-only；完成后按平常方式重新启动。"
-                "Intel Mac 和 Linux 请使用 GGUF 或 OpenAI 兼容 API；图片请使用支持图片输入的 API。"
+                "\n\n本地模型还需要对应运行时。MLX（mlx_lm、mlx_embeddings、mlx_vlm、mlx_whisper）仅支持 "
+                "Apple Silicon Mac，安装命令：python3 \"Start Semdex.py\" --with-mlx --sync-only。"
+                "GGUF/whisper.cpp（llama_cpp、whisper_cpp）：python3 \"Start Semdex.py\" --with-gguf --sync-only。"
+                "faster-whisper：python3 \"Start Semdex.py\" --with-asr --sync-only。请先退出 Semdex，安装后重新启动；"
+                "Intel Mac 和 Linux 请为图片使用支持图片输入的 API。"
             )
             embedding_guide.setWordWrap(True)
             embedding_guide.setOpenExternalLinks(True)
@@ -1152,13 +1153,25 @@ def run_gui(config_path: str | None = None) -> int:
                     state = "可用" if runtime.get("available") else "不可用"
                     detail = str(runtime.get("detail", "")).strip()
                     details.append(f"{name}: {state}" + (f"（{detail}）" if detail else ""))
-            guidance = ""
-            if any(
-                not runtime.get("available") and str(runtime.get("id", "")).startswith("mlx_")
+            install_commands = {
+                "llama_cpp": 'python3 "Start Semdex.py" --with-gguf --sync-only',
+                "whisper_cpp": 'python3 "Start Semdex.py" --with-gguf --sync-only',
+                "faster_whisper": 'python3 "Start Semdex.py" --with-asr --sync-only',
+                "mlx_lm": 'python3 "Start Semdex.py" --with-mlx --sync-only',
+                "mlx_embeddings": 'python3 "Start Semdex.py" --with-mlx --sync-only',
+                "mlx_vlm": 'python3 "Start Semdex.py" --with-mlx --sync-only',
+                "mlx_whisper": 'python3 "Start Semdex.py" --with-mlx --sync-only',
+            }
+            missing_commands = {
+                install_commands[str(runtime.get("id", ""))]
                 for runtime in runtimes
                 if isinstance(runtime, dict)
-            ):
-                guidance = "；MLX 未安装时请退出后运行 python3 \"Start Semdex.py\" --with-mlx --sync-only"
+                and not runtime.get("available")
+                and str(runtime.get("id", "")) in install_commands
+            }
+            guidance = ""
+            if missing_commands:
+                guidance = "；缺少运行时时请退出后运行：" + "；".join(sorted(missing_commands))
             self.local_runtime_status.setText(("  |  ".join(details) or "未检测到本地模型运行时") + guidance)
 
             current_values = {

@@ -98,7 +98,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.with_mlx or args.with_local_models:
         extras.append("mlx")
 
-    sync_command = [uv, "sync"]
+    # Optional runtimes selected on an earlier launch must survive a later
+    # normal launch without --with-*.  Exact sync would otherwise remove them.
+    sync_command = [uv, "sync", "--inexact"]
     for extra in extras:
         sync_command.extend(["--extra", extra])
     if subprocess.run(sync_command, cwd=root, env=environment).returncode:
@@ -106,8 +108,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.sync_only:
         return 0
 
-    run_command = [uv, "run"]
-    for extra in extras:
-        run_command.extend(["--extra", extra])
+    # The explicit sync above has already installed the requested extras.  Do
+    # not let uv perform a second sync with a narrower dependency selection.
+    run_command = [uv, "run", "--no-sync"]
     run_command.extend(["semdex", "serve" if args.ui == "web" else "gui"])
     return subprocess.run(run_command, cwd=root, env=environment).returncode

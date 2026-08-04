@@ -28,7 +28,8 @@ class MediaExtractor(Extractor):
         cfg = ctx.config.asr
         if not cfg.enabled:
             raise CapabilityNotConfigured(
-                "ASR 未启用（在配置中设置 [asr] enabled = true，并执行 `uv sync --extra asr`）"
+                "ASR 未启用（请在设置中启用；本地 faster-whisper 还需退出 Semdex 后运行 "
+                '`python3 "Start Semdex.py" --with-asr --sync-only`）'
             )
         if cfg.provider not in {"faster_whisper", "local"}:
             raise CapabilityNotConfigured(
@@ -38,7 +39,8 @@ class MediaExtractor(Extractor):
             from faster_whisper import WhisperModel
         except ImportError as e:
             raise CapabilityUnavailable(
-                "未安装 faster-whisper。执行 `uv sync --extra asr` 后重新运行 `semdex index`"
+                "未安装 faster-whisper。请退出 Semdex，在项目目录运行 "
+                '`python3 "Start Semdex.py" --with-asr --sync-only`，重新启动后再运行索引'
             ) from e
 
         download_root = ensure_private_directory(ctx.config.model_dir / "whisper")

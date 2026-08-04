@@ -317,7 +317,7 @@ python3 "Start Semdex.py" --sync-only
 
 初始模板中的 `db_path`、`temp_dir` 和 `model_dir` 都相对 `.semdex/config.toml` 解析；移动项目后会自动指向新位置。配置里可以改为绝对路径，也可以使用 `-c` / `SEMDEX_CONFIG` 指定独立配置。旧版本的 `~/.semdex/` 不会被自动移动或删除；需要继续使用旧索引时，显式通过 `-c ~/.semdex/config.toml` 指定即可。
 
-需要本地模型或 ASR 时，使用 `python3 "Start Semdex.py" --with-local-models --with-asr --sync-only` 安装可选依赖。若只需要 GGUF，可使用 `--with-gguf`；MLX 仅在 Apple Silicon macOS 生效。若刻意绕过启动器直接执行首次 `uv sync`，请先设置 `UV_PYTHON_INSTALL_DIR` 到项目内 `.uv-python/`，否则 uv 托管解释器会下载到用户目录。
+需要本地模型或 ASR 时，使用 `python3 "Start Semdex.py" --with-local-models --with-asr --sync-only` 安装可选依赖。若只需要 GGUF，可使用 `--with-gguf`；MLX 仅在 Apple Silicon macOS 生效。启动器会保留已经安装的可选运行时，之后正常启动不会将它们移除。若刻意绕过启动器直接执行首次 `uv sync`，请先设置 `UV_PYTHON_INSTALL_DIR` 到项目内 `.uv-python/`，否则 uv 托管解释器会下载到用户目录。
 
 ## 测试
 

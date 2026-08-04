@@ -314,7 +314,8 @@ class LocalModelManager:
             from llama_cpp import Llama
         except ImportError as exc:
             raise ModelUnavailable(
-                "未安装 GGUF 运行时。执行 `uv sync --extra gguf` 后重新加载模型"
+                "未安装 GGUF 运行时。请退出 Semdex，在项目目录运行 "
+                '`python3 "Start Semdex.py" --with-gguf --sync-only`，然后重新启动'
             ) from exc
         kwargs: dict[str, Any] = {"model_path": str(record.path), "verbose": False}
         if capability == "embedding":
@@ -331,7 +332,8 @@ class LocalModelManager:
             from mlx_lm import load
         except ImportError as exc:
             raise ModelUnavailable(
-                "未安装 MLX 文本运行时。执行 `uv sync --extra mlx` 后重新加载模型"
+                "未安装 MLX 文本运行时。请退出 Semdex，在项目目录运行 "
+                '`python3 "Start Semdex.py" --with-mlx --sync-only`，然后重新启动'
             ) from exc
         try:
             return _LoadedModel("mlx_lm", load(str(record.path)))
@@ -345,7 +347,8 @@ class LocalModelManager:
             from mlx_embeddings import load
         except ImportError as exc:
             raise ModelUnavailable(
-                "该 MLX 模型需要 mlx-embeddings。安装对应运行时，或为向量选择 GGUF/OpenAI API"
+                "该 MLX 模型需要 mlx-embeddings。请退出 Semdex，在项目目录运行 "
+                '`python3 "Start Semdex.py" --with-mlx --sync-only`，或为向量选择 GGUF/OpenAI API'
             ) from exc
         try:
             return _LoadedModel("mlx_embeddings", load(str(record.path)))
@@ -359,7 +362,8 @@ class LocalModelManager:
             from mlx_vlm import load
         except ImportError as exc:
             raise ModelUnavailable(
-                "未安装 MLX 视觉运行时。执行 `uv sync --extra mlx` 后重新加载模型"
+                "未安装 MLX 视觉运行时。请退出 Semdex，在项目目录运行 "
+                '`python3 "Start Semdex.py" --with-mlx --sync-only`，然后重新启动'
             ) from exc
         try:
             return _LoadedModel("mlx_vlm", load(str(record.path)))
@@ -379,7 +383,8 @@ class LocalModelManager:
                 from faster_whisper import WhisperModel
             except ImportError as exc:
                 raise ModelUnavailable(
-                    "未安装 faster-whisper。执行 `uv sync --extra asr` 后重新加载模型"
+                    "未安装 faster-whisper。请退出 Semdex，在项目目录运行 "
+                    '`python3 "Start Semdex.py" --with-asr --sync-only`，然后重新启动'
                 ) from exc
             try:
                 return _LoadedModel(
@@ -395,7 +400,8 @@ class LocalModelManager:
                 import mlx_whisper
             except ImportError as exc:
                 raise ModelUnavailable(
-                    "未安装 MLX Whisper。执行 `uv sync --extra mlx` 后重新加载模型"
+                    "未安装 MLX Whisper。请退出 Semdex，在项目目录运行 "
+                    '`python3 "Start Semdex.py" --with-mlx --sync-only`，然后重新启动'
                 ) from exc
             # mlx-whisper versions differ: some expose a model loader while
             # others load inside transcribe().  Keep either object cached.
@@ -410,7 +416,8 @@ class LocalModelManager:
                 from pywhispercpp.model import Model
             except ImportError as exc:
                 raise ModelUnavailable(
-                    "未安装 pywhispercpp。请安装该可选运行时后重新加载 GGML/GGUF Whisper 模型"
+                    "未安装 pywhispercpp。请退出 Semdex，在项目目录运行 "
+                    '`python3 "Start Semdex.py" --with-gguf --sync-only`，然后重新启动'
                 ) from exc
             try:
                 return _LoadedModel("whisper_cpp", Model(str(record.path)))

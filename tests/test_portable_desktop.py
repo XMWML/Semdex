@@ -84,7 +84,7 @@ def test_bootstrap_passes_project_local_environment_to_uv_before_sync(tmp_path: 
 
     assert bootstrap_module.main(["--sync-only"]) == 0
     command, kwargs = calls[0]
-    assert command == ["uv", "sync", "--extra", "gui"]
+    assert command == ["uv", "sync", "--inexact", "--extra", "gui"]
     assert Path(str(kwargs["cwd"])) == portable_root
     environment = kwargs["env"]
     assert isinstance(environment, dict)
@@ -105,8 +105,8 @@ def test_bootstrap_can_launch_webui_with_selected_local_model_runtime(tmp_path: 
 
     assert bootstrap_module.main(["--web", "--with-asr", "--with-gguf"]) == 0
     assert calls == [
-        ["uv", "sync", "--extra", "asr", "--extra", "gguf"],
-        ["uv", "run", "--extra", "asr", "--extra", "gguf", "semdex", "serve"],
+        ["uv", "sync", "--inexact", "--extra", "asr", "--extra", "gguf"],
+        ["uv", "run", "--no-sync", "semdex", "serve"],
     ]
 
 
