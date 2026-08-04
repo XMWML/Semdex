@@ -258,7 +258,7 @@ def run_gui(config_path: str | None = None) -> int:
         def _build_models_tab(self) -> QWidget:
             page, layout = self._scroll_tab()
 
-            providers_box = QGroupBox("LLM 供应商（一级索引）")
+            providers_box = QGroupBox("llm供应商")
             providers_layout = QVBoxLayout(providers_box)
             providers_intro = QLabel(
                 "这里的供应商只供扩展名规则的“传入 LLM”方式选择。可同时配置本地模型和云端 / "
@@ -404,6 +404,10 @@ def run_gui(config_path: str | None = None) -> int:
                 ".safetensors（或 consolidated.*）权重文件。目录名会成为本地模型 ID，并应含 embedding、"
                 "bge、e5、nomic、gte 或 jina 之一（或让 config.json 的模型信息包含这些标识），才能识别为向量模型；"
                 "同时保留该模型的 tokenizer 文件。选择后可在下方按用途提前加载或卸载，未提前加载时会在首次调用时按需加载。"
+                "\n\nMLX 模型还需要运行时，且仅支持 Apple Silicon Mac。若下方运行时中 mlx_lm、"
+                "mlx_embeddings、mlx_vlm 或 mlx_whisper 显示不可用，请先退出 Semdex，在项目目录运行："
+                "python3 \"Start Semdex.py\" --with-mlx --sync-only；完成后按平常方式重新启动。"
+                "Intel Mac 和 Linux 请使用 GGUF 或 OpenAI 兼容 API；图片请使用支持图片输入的 API。"
             )
             embedding_guide.setWordWrap(True)
             embedding_guide.setOpenExternalLinks(True)
@@ -1148,7 +1152,14 @@ def run_gui(config_path: str | None = None) -> int:
                     state = "可用" if runtime.get("available") else "不可用"
                     detail = str(runtime.get("detail", "")).strip()
                     details.append(f"{name}: {state}" + (f"（{detail}）" if detail else ""))
-            self.local_runtime_status.setText("  |  ".join(details) or "未检测到本地模型运行时")
+            guidance = ""
+            if any(
+                not runtime.get("available") and str(runtime.get("id", "")).startswith("mlx_")
+                for runtime in runtimes
+                if isinstance(runtime, dict)
+            ):
+                guidance = "；MLX 未安装时请退出后运行 python3 \"Start Semdex.py\" --with-mlx --sync-only"
+            self.local_runtime_status.setText(("  |  ".join(details) or "未检测到本地模型运行时") + guidance)
 
             current_values = {
                 name: self._combo_value(fields["local_model"])

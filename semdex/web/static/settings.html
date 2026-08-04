@@ -710,7 +710,7 @@ def extract(path, ctx=None):
 
     <section class="section" aria-labelledby="providersTitle">
       <div class="section-heading">
-        <h2 id="providersTitle">扩展名 LLM 供应商</h2>
+        <h2 id="providersTitle">llm供应商</h2>
         <p>供上方 LLM 索引规则选择</p>
       </div>
       <div class="extractor-head">
@@ -739,6 +739,7 @@ def extract(path, ctx=None):
         <div class="model-library-guide">
           <p>语义嵌入模型可从 <a href="https://huggingface.co/models?pipeline_tag=feature-extraction" target="_blank" rel="noreferrer">Hugging Face</a> 或 <a href="https://modelscope.cn/models" target="_blank" rel="noreferrer">ModelScope</a> 下载后放入上方目录。GGUF 直接放一个支持 embedding 的 <code>*.gguf</code> 文件；MLX 使用独立文件夹，保留 tokenizer 文件，并至少包含 <code>config.json</code> 与全部 <code>*.safetensors</code> 或 <code>consolidated.*</code> 权重。</p>
           <p>MLX 文件夹名或 <code>config.json</code> 的模型信息需包含 <code>embedding</code>、<code>bge</code>、<code>e5</code>、<code>nomic</code>、<code>gte</code>、<code>jina</code> 之一，才会显示“向量”能力；文件夹相对路径就是本地模型 ID。</p>
+          <p><strong>MLX 模型需要运行时。</strong> 仅 Apple Silicon Mac 支持。若运行时列表中 <code>mlx_lm</code>、<code>mlx_embeddings</code>、<code>mlx_vlm</code> 或 <code>mlx_whisper</code> 显示不可用，请先退出 Semdex，在项目目录运行 <code>python3 "Start Semdex.py" --with-mlx --sync-only</code>，完成后按平常方式重新启动。Intel Mac 和 Linux 请为文本/向量选择 GGUF 或 OpenAI 兼容 API，为图片选择支持图片输入的 OpenAI 兼容 API。</p>
           <p>“刷新模型”重新扫描磁盘；“加载”可提前把所选用途放入内存；“卸载”释放对应运行时。未提前加载时，模型会在首次调用该用途时按需加载。</p>
         </div>
         <div class="runtime-list" id="runtimeList" aria-live="polite"></div>
@@ -1716,7 +1717,10 @@ def extract(path, ctx=None):
       return;
     }
     state.modelInventory.runtimes.forEach(runtime => {
-      const text = [runtime.id || '运行时', runtime.detail].filter(Boolean).join(' · ');
+      const unavailableHelp = !runtime.available && String(runtime.id || '').startsWith('mlx_')
+        ? '未安装：退出后运行 python3 "Start Semdex.py" --with-mlx --sync-only'
+        : '';
+      const text = [runtime.id || '运行时', runtime.detail, unavailableHelp].filter(Boolean).join(' · ');
       list.append(makeMeta(text, `runtime-chip ${runtime.available ? 'available' : 'unavailable'}`));
     });
   }

@@ -256,7 +256,7 @@ BUILTIN_EXTRACTOR_RULES: tuple[ExtractorRule, ...] = (
     ExtractorRule("pptx", "PowerPoint 演示文稿", [".pptx"]),
     ExtractorRule("legacy_office", "旧版 Office 文档", [".doc", ".xls", ".ppt"]),
     ExtractorRule(
-        "image", "图片（OCR 插件）",
+        "image", "图片",
         [".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"],
         kind="python", plugin="ocr",
     ),
@@ -264,7 +264,7 @@ BUILTIN_EXTRACTOR_RULES: tuple[ExtractorRule, ...] = (
     ExtractorRule("eml", "邮件 .eml", [".eml"]),
     ExtractorRule("mbox", "邮件归档 .mbox", [".mbox"]),
     ExtractorRule(
-        "asr", "音频与视频（语音识别插件）", [
+        "asr", "音频与视频", [
             ".mp3", ".wav", ".m4a", ".aac", ".flac", ".ogg", ".opus",
             ".mp4", ".mov", ".mkv", ".webm", ".avi",
         ],

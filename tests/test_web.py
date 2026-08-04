@@ -469,7 +469,8 @@ def test_settings_page_explains_llm_and_python_extension_routes(tmp_path: Path):
     assert "直接索引文本" in response.text
     assert "传入 LLM" in response.text
     assert "Python 外置插件" in response.text
-    assert "扩展名 LLM 供应商" in response.text
+    assert "llm供应商" in response.text
+    assert "Start Semdex.py\" --with-mlx --sync-only" in response.text
     assert "检索 Agent 模型" in response.text
     assert "实体抽取模型" in response.text
     assert "语义嵌入模型" in response.text

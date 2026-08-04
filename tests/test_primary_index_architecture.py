@@ -24,6 +24,8 @@ def test_defaults_seed_folder_plugins_and_use_three_primary_rule_kinds(tmp_path:
     assert rules["pdf"]["kind"] == "text"
     assert (rules["image"]["kind"], rules["image"]["plugin"]) == ("python", "ocr")
     assert (rules["asr"]["kind"], rules["asr"]["plugin"]) == ("python", "asr")
+    assert rules["image"]["label"] == "图片"
+    assert rules["asr"]["label"] == "音频与视频"
     assert {rule["kind"] for rule in rules.values()} <= {"text", "llm", "python"}
     assert payload["extractors"]["plugin_dir"] == str(tmp_path / "extractors")
     for plugin_id in ("ocr", "asr"):
