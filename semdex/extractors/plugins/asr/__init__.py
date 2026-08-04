@@ -1,0 +1,1 @@
+"""Shipped ASR plugin source."""

@@ -15,7 +15,7 @@ from semdex.desktop import DesktopController
 from semdex.extractors.base import ExtractContext
 from semdex.extractors.legacy_office import LegacyOfficeExtractor
 from semdex.extractors.media import MediaExtractor
-from semdex.gui import SearchRequestGuard
+from semdex.gui import SearchRequestGuard, _normalize_extractor_input_mode
 from semdex.modelclient import ModelClient
 from semdex.models import ExtractError
 from semdex.paths import (
@@ -116,6 +116,13 @@ def test_gui_search_guard_discards_old_searches():
     second = guard.begin()
     assert not guard.is_current(first)
     assert guard.is_current(second)
+
+
+def test_gui_raw_image_mode_requires_only_supported_image_extensions():
+    assert _normalize_extractor_input_mode(".png, JPG", "image") == "image"
+    assert _normalize_extractor_input_mode(".txt", "image") == "text"
+    assert _normalize_extractor_input_mode(".png, .pdf", "image") == "text"
+    assert _normalize_extractor_input_mode(".png", "text") == "text"
 
 
 def test_template_storage_paths_move_with_the_config_directory(tmp_path: Path):

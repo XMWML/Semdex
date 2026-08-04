@@ -10,17 +10,9 @@ import base64
 from pathlib import Path
 
 from .config import ModelCfg
+from .imagetypes import IMAGE_MIME_TYPES, image_format_error
 from .localmodels import get_local_model_manager
 from .models import ModelNotConfigured, ModelUnavailable
-
-_IMAGE_MIME = {
-    ".png": "image/png",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".webp": "image/webp",
-    ".gif": "image/gif",
-    ".bmp": "image/bmp",
-}
 
 VISION_PROMPT = (
     "请详细描述这张图片的内容，用于建立文件搜索索引。"
@@ -150,22 +142,25 @@ class ModelClient:
             })
         return raw, message.content or "", calls
 
-    def describe_image(self, path: Path) -> str:
+    def describe_image(self, path: Path, prompt: str = VISION_PROMPT) -> str:
+        extension = path.suffix.lower()
+        mime = IMAGE_MIME_TYPES.get(extension)
+        if mime is None:
+            raise ModelUnavailable(image_format_error(extension))
         if self.local:
             client = self._get_client()
             try:
-                return client.describe_image(self.cfg.local_model, path, VISION_PROMPT)
+                return client.describe_image(self.cfg.local_model, path, prompt)
             except (ModelNotConfigured, ModelUnavailable):
                 raise
             except Exception as e:
                 raise ModelUnavailable(f"{self.kind} 本地视觉模型调用失败: {e}") from e
-        mime = _IMAGE_MIME.get(path.suffix.lower(), "image/png")
         b64 = base64.b64encode(path.read_bytes()).decode("ascii")
         return self.chat([
             {
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": VISION_PROMPT},
+                    {"type": "text", "text": prompt},
                     {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
                 ],
             }

@@ -16,9 +16,9 @@ from typing import Any
 from .agent import ask as do_ask
 from .config import Config, load_config, resolve_config_path, write_default_config
 from .db import Database
-from .indexer import embed_missing, index_pending
-from .modelclient import embedding_identity
+from .indexer import embed_missing, index_pending, synchronize_index_state
 from .models import ModelNotConfigured, ModelUnavailable
+from .progress import IndexProgress
 from .scanner import scan
 from .search import search as do_search
 from .settings import save_settings, settings_dict
@@ -36,6 +36,7 @@ class DesktopController:
         self._config_lock = threading.RLock()
         self._indexing = False
         self._last_run: dict[str, Any] | None = None
+        self._progress = IndexProgress()
 
     @property
     def config(self) -> Config:
@@ -53,30 +54,6 @@ class DesktopController:
     def settings(self) -> dict[str, Any]:
         return settings_dict(self.config)
 
-    def _invalidate_changed_embeddings(self, before: Config, after: Config) -> bool:
-        if before.db_path != after.db_path:
-            return False
-        db = self._open_db(before)
-        try:
-            if (
-                db.chunks_with_embeddings()
-                and db.meta_get("embedding_model_id") != embedding_identity(after.embedding)
-            ):
-                db.require_embedding_rebuild()
-                return True
-            return False
-        finally:
-            db.close()
-
-    def _requeue_files_when_fallback_is_enabled(self, before: Config, after: Config) -> int:
-        if before.db_path != after.db_path or before.agent_fallback.enabled or not after.agent_fallback.enabled:
-            return 0
-        db = self._open_db(after)
-        try:
-            return db.requeue_files_without_extractor()
-        finally:
-            db.close()
-
     def save_settings(self, payload: object) -> dict[str, Any]:
         with self._state_lock:
             if self._indexing:
@@ -85,8 +62,11 @@ class DesktopController:
                 before = self._config
                 after = save_settings(before, payload)
                 self._config = after
-                self._invalidate_changed_embeddings(before, after)
-                self._requeue_files_when_fallback_is_enabled(before, after)
+                db = self._open_db(after)
+                try:
+                    synchronize_index_state(db, after, log=lambda *_: None)
+                finally:
+                    db.close()
                 return settings_dict(after)
 
     def local_model_catalog(self) -> dict[str, Any]:
@@ -123,18 +103,28 @@ class DesktopController:
             return {
                 "files": counts,
                 "indexing": self._indexing,
+                "progress": self._progress.snapshot(),
                 "last_run": self._last_run,
                 "folders": [str(folder) for folder in config.folders],
                 "models": {
-                    "llm": config.agent_model.enabled,
-                    "vision": config.vision.enabled,
+                    "llm": any(provider.enabled for provider in config.llm_providers or []),
+                    "llm_providers": sum(
+                        1 for provider in config.llm_providers or [] if provider.enabled
+                    ),
                     "embedding": config.embedding.enabled,
+                    "rag": config.rag.enabled and config.embedding.enabled,
+                    "agent": config.agent.enabled and config.agent_model.enabled,
+                    "entities": config.entities.enabled and config.entities_model.enabled,
                 },
                 "embedding_rebuild_required": needs_rebuild,
                 "capabilities": {
                     "ocr": config.ocr.enabled,
                     "asr": config.asr.enabled,
                     "entities": config.entities.enabled,
+                    "plugins": sum(
+                        1 for rule in config.extractor_rules
+                        if rule.enabled and rule.kind == "python"
+                    ),
                 },
             }
 
@@ -176,6 +166,7 @@ class DesktopController:
             with self._config_lock:
                 config = self._config
             self._indexing = True
+            self._progress.begin(full_rebuild=full_rebuild)
 
         def run() -> None:
             db: Database | None = None
@@ -186,21 +177,29 @@ class DesktopController:
                     requeued = db.requeue_all_for_full_reindex(
                         invalidate_embeddings=config.embedding.enabled
                     )
-                scan_stats = scan(db, config, log=lambda *_: None)
-                index_stats = index_pending(db, config, log=lambda *_: None)
+                scan_stats = scan(db, config, log=lambda *_: None, progress=self._progress.update)
+                index_stats = index_pending(db, config, log=lambda *_: None, progress=self._progress.update)
                 result: dict[str, Any] = {
                     "full_rebuild": full_rebuild,
                     "requeued": requeued,
                     "scan": scan_stats.to_dict(),
                     "index": index_stats.to_dict(),
                 }
-                if full_rebuild and config.embedding.enabled:
-                    try:
-                        result["embedded_files"] = embed_missing(
-                            db, config, log=lambda *_: None, rebuild=True
-                        )
-                    except (ModelNotConfigured, ModelUnavailable, ValueError, RuntimeError) as exc:
-                        result["embedding_error"] = str(exc)
+                if (
+                    full_rebuild
+                    and config.embedding.enabled
+                    and db.meta_get("embedding_rebuild_required") == "1"
+                ):
+                    if index_stats.embed_errors:
+                        result["embedding_error"] = index_stats.embed_errors[-1]
+                    else:
+                        try:
+                            result["embedded_files"] = embed_missing(
+                                db, config, log=lambda *_: None, rebuild=True,
+                                progress=self._progress.update,
+                            )
+                        except (ModelNotConfigured, ModelUnavailable, ValueError, RuntimeError) as exc:
+                            result["embedding_error"] = str(exc)
             except Exception as exc:  # Keep failures visible through status/UI.
                 result = {"error": str(exc)}
             finally:
@@ -209,6 +208,7 @@ class DesktopController:
                 with self._state_lock:
                     self._indexing = False
                     self._last_run = result
+                    self._progress.finish(failed="error" in result)
 
         worker = threading.Thread(target=run, daemon=True, name="semdex-index")
         worker.start()

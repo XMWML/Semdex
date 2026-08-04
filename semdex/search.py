@@ -1,4 +1,4 @@
-"""检索：FTS5 全文（BM25）、向量语义、RRF 混合。
+"""检索：FTS5 全文（BM25）、RAG 向量语义、RRF 混合。
 
 - fulltext：中文按字短语匹配（见 textutil），FTS 无结果时退化为 LIKE 子串兜底
 - semantic：embedding 余弦相似度，按文件取最高分块
@@ -10,6 +10,7 @@ import numpy as np
 
 from .config import Config
 from .db import Database
+from .indexer import EMBEDDING_IDENTITY_KEY, embedding_index_identity
 from .modelclient import ModelClient, embedding_identity
 from .models import EmbeddingRebuildRequired, ModelNotConfigured, ModelUnavailable, SearchHit
 from .textutil import build_fts_query, make_snippet
@@ -46,11 +47,21 @@ def _fulltext_ids(db: Database, query: str, limit: int) -> list[tuple[int, float
 
 
 def _semantic_ids(db: Database, config: Config, query: str, limit: int) -> list[tuple[int, float]]:
+    if not config.rag.enabled:
+        raise ModelNotConfigured("RAG 语义检索未启用，请在设置中打开 RAG")
     if not config.embedding.enabled:
         raise ModelNotConfigured("语义搜索需要启用 embedding 模型（配置 [models.embedding]）")
     if db.meta_get("embedding_rebuild_required") == "1":
         raise EmbeddingRebuildRequired(
-            "embedding 模型变更后正在等待完整重建；请运行 `semdex embed --rebuild`"
+            "Embedding 配置变化后正在等待完整重建；运行一次普通索引会自动重试"
+        )
+    stored_index_identity = db.meta_get(EMBEDDING_IDENTITY_KEY)
+    if stored_index_identity != embedding_index_identity(config):
+        db.clear_chunks()
+        db.require_embedding_rebuild()
+        raise EmbeddingRebuildRequired(
+            "当前 Embedding 模型、服务地址或分块参数与库中向量不一致；"
+            "运行一次普通索引会自动重建"
         )
     rows = db.chunks_with_embeddings()
     if not rows:
@@ -62,7 +73,7 @@ def _semantic_ids(db: Database, config: Config, query: str, limit: int) -> list[
         db.require_embedding_rebuild()
         raise EmbeddingRebuildRequired(
             "当前 embedding 模型或服务地址与库中向量不一致；"
-            "请运行 `semdex embed --rebuild` 重建"
+            "运行一次普通索引会自动重建"
         )
     emb = ModelClient(config.embedding, "embedding")
     qv = np.asarray(emb.embed([query])[0], dtype=np.float32)
@@ -71,12 +82,12 @@ def _semantic_ids(db: Database, config: Config, query: str, limit: int) -> list[
         matrix = np.stack([np.frombuffer(r["embedding"], dtype=np.float32) for r in rows])
     except ValueError as e:
         raise EmbeddingRebuildRequired(
-            "索引中的向量维度不一致；请运行 `semdex embed --rebuild`"
+            "索引中的向量维度不一致；运行一次普通索引会自动重建"
         ) from e
     if matrix.shape[1] != qv.shape[0]:
         raise EmbeddingRebuildRequired(
             f"向量维度不匹配（库内 {matrix.shape[1]}，查询 {qv.shape[0]}）；"
-            "请运行 `semdex embed --rebuild` 重建"
+            "运行一次普通索引会自动重建"
         )
     qn = qv / (np.linalg.norm(qv) + 1e-9)
     mn = matrix / (np.linalg.norm(matrix, axis=1, keepdims=True) + 1e-9)
@@ -88,7 +99,7 @@ def _semantic_ids(db: Database, config: Config, query: str, limit: int) -> list[
         if s > best_per_file.get(fid, -2.0):
             best_per_file[fid] = float(s)
     ranked = sorted(best_per_file.items(), key=lambda kv: kv[1], reverse=True)
-    return ranked[:limit]
+    return ranked[:min(limit, config.rag.max_context_chunks)]
 
 
 def _rrf_merge(*ranked_lists: list[tuple[int, float]]) -> list[tuple[int, float]]:
@@ -108,7 +119,7 @@ def search(db: Database, config: Config, query: str,
     if mode not in ("fulltext", "semantic", "hybrid"):
         raise ValueError(f"未知搜索模式: {mode}（可选 fulltext / semantic / hybrid）")
 
-    if mode == "hybrid" and not config.embedding.enabled:
+    if mode == "hybrid" and (not config.rag.enabled or not config.embedding.enabled):
         mode = "fulltext"  # 优雅降级
 
     if mode == "fulltext":

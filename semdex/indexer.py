@@ -3,31 +3,242 @@ from __future__ import annotations
 
 from array import array
 from contextlib import contextmanager
+from dataclasses import fields, is_dataclass
+import hashlib
+import json
 import os
 from pathlib import Path
 import tempfile
 from collections.abc import Iterator
+from collections.abc import Callable
+from typing import Any
 
 from .chunker import chunk_text
 from .config import Config
 from .db import Database
 from .extractors import ExtractContext, resolve
+from .extractors.script import PLUGIN_FILENAME, resolve_python_plugin
 from .modelclient import ModelClient, embedding_identity
 from .paths import ensure_private_directory
 from .safepath import configured_watch_roots, open_regular_file_beneath_root
 from .models import (
     STATUS_DONE, STATUS_FAILED, STATUS_PENDING, STATUS_SKIPPED,
     STATUS_WAITING_CAPABILITY, STATUS_WAITING_MODEL, CapabilityNotConfigured,
-    CapabilityUnavailable, EmbeddingRebuildRequired, ExtractError, IndexStats,
+    CapabilityUnavailable, ExtractError, IndexStats,
     ModelNotConfigured, ModelUnavailable,
 )
 
 MAX_TEXT_CHARS = 1_000_000
 EMBED_BATCH = 16
+PRIMARY_IDENTITY_KEY = "primary_index_identity"
+EMBEDDING_IDENTITY_KEY = "embedding_index_identity"
+ENTITY_IDENTITY_KEY = "entity_index_identity"
 
 
 def _vec_to_blob(vec: list[float]) -> bytes:
     return array("f", vec).tobytes()
+
+
+def _identity_value(value: Any) -> Any:
+    """Convert runtime configuration into deterministic JSON-compatible data."""
+    if isinstance(value, Path):
+        return str(value.expanduser().resolve(strict=False))
+    if is_dataclass(value) and not isinstance(value, type):
+        return {
+            item.name: _identity_value(getattr(value, item.name))
+            for item in fields(value)
+        }
+    if isinstance(value, dict):
+        return {str(key): _identity_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_identity_value(item) for item in value]
+    return value
+
+
+def _identity_hash(payload: object) -> str:
+    canonical = json.dumps(
+        _identity_value(payload),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
+
+
+def _plugin_source_identity(path: Path) -> dict[str, str]:
+    canonical = str(path.expanduser().resolve(strict=False))
+    try:
+        source = path.read_bytes()
+    except FileNotFoundError:
+        return {"path": canonical, "state": "missing"}
+    except (OSError, ValueError) as exc:
+        return {
+            "path": canonical,
+            "state": "unreadable",
+            "error": type(exc).__name__,
+        }
+    return {
+        "path": canonical,
+        "state": "file",
+        "sha256": hashlib.sha256(source).hexdigest(),
+    }
+
+
+def _plugin_runtime_identity(config: Config) -> dict[str, object]:
+    """Fingerprint discoverable plugin entrypoints and every configured target."""
+    root = config.extractor_dir.expanduser().resolve(strict=False)
+    inventory: list[dict[str, object]] = []
+    try:
+        entries = sorted(root.iterdir(), key=lambda item: item.name.casefold())
+    except FileNotFoundError:
+        entries = []
+        inventory.append({"state": "directory-missing"})
+    except OSError as exc:
+        entries = []
+        inventory.append({"state": "directory-unreadable", "error": type(exc).__name__})
+
+    for entry in entries:
+        if entry.name.startswith(".") or entry.name == "__pycache__":
+            continue
+        if entry.is_dir():
+            inventory.append({
+                "reference": entry.name,
+                "kind": "folder",
+                "source": _plugin_source_identity(entry / PLUGIN_FILENAME),
+            })
+        elif entry.is_file() and entry.suffix.lower() == ".py" and entry.name != "__init__.py":
+            inventory.append({
+                "reference": entry.name,
+                "kind": "legacy-file",
+                "source": _plugin_source_identity(entry),
+            })
+
+    configured: list[dict[str, object]] = []
+    for position, rule in enumerate(config.extractor_rules):
+        if rule.kind != "python":
+            continue
+        try:
+            source = resolve_python_plugin(config.extractor_dir, rule.plugin)
+        except Exception as exc:
+            configured.append({
+                "position": position,
+                "rule": rule.id,
+                "plugin": rule.plugin,
+                "state": "invalid-reference",
+                "error": type(exc).__name__,
+            })
+            continue
+        configured.append({
+            "position": position,
+            "rule": rule.id,
+            "plugin": rule.plugin,
+            "function": rule.function,
+            "source": _plugin_source_identity(source),
+        })
+
+    return {
+        "directory": str(root),
+        "inventory": inventory,
+        "configured": configured,
+    }
+
+
+def primary_index_identity(config: Config) -> str:
+    """Identify every configured input that can change primary indexed text."""
+    return _identity_hash({
+        "schema": 1,
+        "rules": config.extractor_rules,
+        "legacy_script_rules": config.script_rules,
+        "llm_providers": config.llm_providers or [],
+        "legacy_llm": config.llm,
+        "plugins": _plugin_runtime_identity(config),
+        "ocr": config.ocr,
+        "asr": config.asr,
+    })
+
+
+def embedding_index_identity(config: Config) -> str:
+    """Identify the complete chunking and vector-space contract."""
+    return _identity_hash({
+        "schema": 1,
+        "enabled": config.embedding.enabled,
+        "model": embedding_identity(config.embedding),
+        "chunk_size": config.chunk_size,
+        "chunk_overlap": config.chunk_overlap,
+    })
+
+
+def entity_index_identity(config: Config) -> str:
+    """Identify the entity model and extraction limits independently of primary text."""
+    return _identity_hash({
+        "schema": 1,
+        "settings": config.entities,
+        "model": config.entities_model,
+    })
+
+
+def synchronize_index_state(db: Database, config: Config, log=print) -> bool:
+    """Invalidate stale primary and derived indexes for the active configuration.
+
+    The operation is idempotent. Identities are opaque hashes, so credentials
+    contribute to invalidation without ever being persisted in plaintext.
+    """
+    current_primary = primary_index_identity(config)
+    stored_primary = db.meta_get(PRIMARY_IDENTITY_KEY)
+    primary_requeued = False
+    if stored_primary is None:
+        if db.has_indexed_content():
+            count = db.requeue_all_for_full_reindex(
+                invalidate_embeddings=config.embedding.enabled,
+            )
+            primary_requeued = True
+            log(f"⚠ 一级索引配置首次建立身份，已重排 {count} 个已有文件")
+        db.meta_set(PRIMARY_IDENTITY_KEY, current_primary)
+    elif stored_primary != current_primary:
+        count = db.requeue_all_for_full_reindex(
+            invalidate_embeddings=config.embedding.enabled,
+        )
+        primary_requeued = True
+        db.meta_set(PRIMARY_IDENTITY_KEY, current_primary)
+        log(f"↻ 一级索引规则、LLM 或插件已变化，已重排 {count} 个文件")
+
+    current_embedding = embedding_index_identity(config)
+    stored_embedding = db.meta_get(EMBEDDING_IDENTITY_KEY)
+    rebuild_required = db.meta_get("embedding_rebuild_required") == "1"
+    if not config.embedding.enabled:
+        if stored_embedding != current_embedding or rebuild_required:
+            db.clear_chunks()
+            db.meta_delete("embedding_rebuild_required")
+            db.meta_delete("embedding_model")
+            db.meta_delete("embedding_model_id")
+            db.meta_set(EMBEDDING_IDENTITY_KEY, current_embedding)
+        rebuild_required = False
+    elif stored_embedding is None:
+        if db.has_indexed_content() or rebuild_required or primary_requeued:
+            db.clear_chunks()
+            db.require_embedding_rebuild()
+            rebuild_required = True
+        else:
+            db.meta_set(EMBEDDING_IDENTITY_KEY, current_embedding)
+    elif stored_embedding != current_embedding:
+        db.clear_chunks()
+        db.require_embedding_rebuild()
+        rebuild_required = True
+        log("↻ Embedding 模型或分块参数已变化，将在本次索引中自动重建向量")
+
+    current_entity = entity_index_identity(config)
+    stored_entity = db.meta_get(ENTITY_IDENTITY_KEY)
+    if not config.entities.enabled:
+        if stored_entity != current_entity:
+            db.clear_entities()
+            db.meta_set(ENTITY_IDENTITY_KEY, current_entity)
+    elif stored_entity != current_entity:
+        db.clear_entities()
+        db.meta_set(ENTITY_IDENTITY_KEY, current_entity)
+        if stored_entity is not None:
+            log("↻ 实体抽取模型或参数已变化，将重新抽取已有正文")
+
+    return rebuild_required
 
 
 def _configured_watch_roots(config: Config) -> list[Path]:
@@ -146,57 +357,79 @@ def _embedding_identity(config: Config) -> str:
 def _set_embedding_identity(db: Database, config: Config) -> None:
     db.meta_set("embedding_model", config.embedding.model)
     db.meta_set("embedding_model_id", _embedding_identity(config))
+    db.meta_set(EMBEDDING_IDENTITY_KEY, embedding_index_identity(config))
 
 
 def check_embedding_model(db: Database, config: Config, log=print) -> bool:
-    """Return whether incremental indexing must suppress embedding writes."""
-    pending_rebuild = db.meta_get("embedding_rebuild_required") == "1"
-    if not config.embedding.enabled:
-        return pending_rebuild
-    previous_model = db.meta_get("embedding_model")
-    previous_identity = db.meta_get("embedding_model_id")
-    has_vectors = bool(db.chunks_with_embeddings())
-    identity_changed = has_vectors and previous_identity != _embedding_identity(config)
-    if identity_changed and not pending_rebuild:
-        _require_embedding_rebuild(db)
-        pending_rebuild = True
-        if previous_identity:
-            log(
-                f"⚠ embedding 模型或服务地址从 {previous_model or '未知'} 变更，"
-                "已清除旧向量。运行 `semdex embed --rebuild` 后再使用语义搜索"
+    """Compatibility wrapper for callers that only need the rebuild flag."""
+    return synchronize_index_state(db, config, log=log)
+
+
+def _llm_extractor_clients(config: Config) -> dict[str, ModelClient]:
+    """Create only reusable providers referenced by active primary rules."""
+    selected = {
+        rule.provider
+        for rule in config.extractor_rules
+        if rule.enabled and rule.kind == "llm"
+    }
+    clients: dict[str, ModelClient] = {}
+    for provider_id in selected:
+        provider = config.llm_provider(provider_id)
+        if provider is not None:
+            client_kind = (
+                provider_id.removeprefix("legacy-")
+                if provider_id.startswith("legacy-")
+                else f"llm-provider:{provider_id}"
             )
-        else:
-            log("⚠ 现有向量缺少完整模型来源，已清除。运行 `semdex embed --rebuild` 后再使用语义搜索")
-    elif pending_rebuild:
-        log("⚠ 向量重建尚未完成；已跳过本次增量向量化。运行 `semdex embed --rebuild`")
-    return pending_rebuild
+            clients[provider_id] = ModelClient(
+                provider.model_config(), client_kind,
+            )
+    return clients
 
 
-def index_pending(db: Database, config: Config, log=print,
-                  retry_failed: bool = False) -> IndexStats:
+def index_pending(
+    db: Database,
+    config: Config,
+    log=print,
+    retry_failed: bool = False,
+    progress: Callable[..., None] | None = None,
+) -> IndexStats:
     stats = IndexStats()
+    embedding_rebuild_required = synchronize_index_state(db, config, log=log)
+    legacy_llm = ModelClient(config.llm, "llm")
+    provider_clients = _llm_extractor_clients(config)
     ctx = ExtractContext(
         config=config,
         vision=ModelClient(config.vision, "vision"),
-        llm=ModelClient(config.fallback_model, "fallback"),
+        llm=legacy_llm,
+        llm_providers=provider_clients,
+        llm_models=provider_clients,
     )
-    emb = ModelClient(config.embedding, "embedding")
-    embedding_rebuild_required = check_embedding_model(db, config, log)
 
     statuses = [STATUS_PENDING, STATUS_WAITING_MODEL, STATUS_WAITING_CAPABILITY]
     if retry_failed:
         statuses += [STATUS_FAILED, STATUS_SKIPPED]
 
-    for row in db.iter_files(statuses):
+    rows = db.iter_files(statuses)
+    total = len(rows)
+    if progress is not None:
+        progress("indexing", current=0, total=total, current_file="")
+    for position, row in enumerate(rows, start=1):
         file_id, path = int(row["id"]), Path(row["path"])
+        if progress is not None:
+            progress("indexing", current=position - 1, total=total, current_file=str(path))
         path, invalid_path_error = _validated_source_path(path, config)
         if path is None:
             if invalid_path_error is not None:
                 db.mark_skipped_invalid_path(file_id, invalid_path_error)
                 stats.skipped += 1
                 log(f"⚠ {row['filename']}: {invalid_path_error}")
+                if progress is not None:
+                    progress("indexing", current=position, total=total, current_file="")
                 continue
             db.remove_file(file_id)
+            if progress is not None:
+                progress("indexing", current=position, total=total, current_file="")
             continue
 
         source_name = path.name
@@ -206,14 +439,20 @@ def index_pending(db: Database, config: Config, log=print,
                     db.mark_skipped_invalid_path(file_id, snapshot_error)
                     stats.skipped += 1
                     log(f"⚠ {source_name}: {snapshot_error}")
+                    if progress is not None:
+                        progress("indexing", current=position, total=total, current_file="")
                     continue
                 db.remove_file(file_id)
+                if progress is not None:
+                    progress("indexing", current=position, total=total, current_file="")
                 continue
 
             extractor = resolve(snapshot, config)
             if extractor is None:
                 db.set_status(file_id, STATUS_SKIPPED, error="没有适用的提取器")
                 stats.skipped += 1
+                if progress is not None:
+                    progress("indexing", current=position, total=total, current_file="")
                 continue
 
             try:
@@ -222,49 +461,61 @@ def index_pending(db: Database, config: Config, log=print,
                 db.set_status(file_id, STATUS_WAITING_MODEL, error=str(e), extractor=extractor.name)
                 stats.waiting_model += 1
                 log(f"⏳ {source_name}: {e}")
+                if progress is not None:
+                    progress("indexing", current=position, total=total, current_file="")
                 continue
             except (CapabilityNotConfigured, CapabilityUnavailable) as e:
                 db.set_status(file_id, STATUS_WAITING_CAPABILITY, error=str(e), extractor=extractor.name)
                 stats.waiting_capability += 1
                 log(f"⏳ {source_name}: {e}")
+                if progress is not None:
+                    progress("indexing", current=position, total=total, current_file="")
                 continue
             except ExtractError as e:
                 db.set_status(file_id, STATUS_FAILED, error=str(e), extractor=extractor.name)
                 stats.failed += 1
                 log(f"✗ {source_name}: {e}")
+                if progress is not None:
+                    progress("indexing", current=position, total=total, current_file="")
                 continue
             except Exception as e:
                 db.set_status(file_id, STATUS_FAILED, error=repr(e), extractor=extractor.name)
                 stats.failed += 1
                 log(f"✗ {source_name}: {e!r}")
+                if progress is not None:
+                    progress("indexing", current=position, total=total, current_file="")
                 continue
 
         text = text[:MAX_TEXT_CHARS]
         db.save_content(file_id, text, row["filename"])
-
-        if emb.enabled and not embedding_rebuild_required:
-            try:
-                dimension = _embed_file(db, config, emb, file_id, text)
-                _set_embedding_identity(db, config)
-                if dimension is not None:
-                    db.meta_set("embedding_dim", str(dimension))
-                stats.embedded_files += 1
-            except Exception as e:
-                # 全文索引已成功，向量之后可用 `semdex embed` 补
-                db.replace_chunks(file_id, [])
-                stats.embed_errors.append(f"{path.name}: {e}")
-                log(f"⚠ {path.name} 向量化失败（全文索引不受影响）: {e}")
-        else:
-            db.replace_chunks(file_id, [])
-
         db.set_status(file_id, STATUS_DONE, extractor=extractor.name)
         stats.indexed += 1
         log(f"✓ [{extractor.name}] {path.name}")
+        if progress is not None:
+            progress("indexing", current=position, total=total, current_file="")
+
+    # Embedding is a secondary index over successfully extracted primary text.
+    # A normal index pass also repairs missing vectors and completes any full
+    # rebuild requested by a configuration identity change.
+    if config.embedding.enabled:
+        try:
+            stats.embedded_files = embed_missing(
+                db,
+                config,
+                log=log,
+                rebuild=embedding_rebuild_required,
+                progress=progress,
+            )
+        except Exception as exc:
+            stats.embed_errors.append(str(exc))
+            log(f"⚠ 向量索引未完成（一级正文不受影响，将在下次索引重试）: {exc}")
 
     # Entity extraction is secondary: a model outage must never invalidate
     # successful content indexing.  Newly changed files stay pending until the
     # user enables the optional entity feature and its LLM is available.
     if config.entities.enabled and config.entities_model.enabled:
+        if progress is not None:
+            progress("entities", current=total, total=total, current_file="")
         from .entities import index_entities
 
         entity_stats = index_entities(db, config, log=log, retry_failed=retry_failed)
@@ -275,37 +526,48 @@ def index_pending(db: Database, config: Config, log=print,
     return stats
 
 
-def embed_missing(db: Database, config: Config, log=print, rebuild: bool = False) -> int:
-    """给缺向量的已索引文件补 embedding；--rebuild 时全部重建。"""
+def embed_missing(
+    db: Database,
+    config: Config,
+    log=print,
+    rebuild: bool = False,
+    progress: Callable[..., None] | None = None,
+) -> int:
+    """Fill missing vectors, automatically honoring a pending full rebuild."""
     if not config.embedding.enabled:
         raise ModelNotConfigured("embedding 模型未启用（配置 [models.embedding] enabled = true）")
 
-    previous_identity = db.meta_get("embedding_model_id")
+    current_identity = embedding_index_identity(config)
+    previous_identity = db.meta_get(EMBEDDING_IDENTITY_KEY)
     rebuild_required = db.meta_get("embedding_rebuild_required") == "1"
-    has_vectors = bool(db.chunks_with_embeddings())
-    if has_vectors and previous_identity != _embedding_identity(config) and not rebuild_required:
+    if rebuild or previous_identity != current_identity:
+        db.clear_chunks()
         _require_embedding_rebuild(db)
         rebuild_required = True
 
-    if rebuild:
-        # A manual rebuild is always all-or-nothing from the searcher's point
-        # of view.  If the model goes away midway, the marker remains set and
-        # semantic retrieval stays disabled until a later successful run.
+    if rebuild_required:
+        # A full rebuild is all-or-nothing from the searcher's point of view.
+        # Drop partial retry output before starting, and retain the marker if
+        # the model becomes unavailable midway.
+        db.clear_chunks()
         _require_embedding_rebuild(db)
         rows = db.iter_files([STATUS_DONE])
-    elif rebuild_required:
-        raise EmbeddingRebuildRequired(
-            "embedding 模型已变更，旧向量已清除；请运行 `semdex embed --rebuild`"
-        )
     else:
         rows = db.files_without_chunks()
 
     emb = ModelClient(config.embedding, "embedding")
     done = 0
     dimension: int | None = None
-    for row in rows:
+    total = len(rows)
+    if progress is not None:
+        progress("embedding", current=0, total=total, current_file="")
+    for position, row in enumerate(rows, start=1):
+        if progress is not None:
+            progress("embedding", current=position - 1, total=total, current_file=str(row["filename"]))
         text = db.get_content(int(row["id"]))
         if not text:
+            if progress is not None:
+                progress("embedding", current=position, total=total, current_file="")
             continue
         file_dimension = _embed_file(db, config, emb, int(row["id"]), text)
         if file_dimension is not None:
@@ -315,9 +577,11 @@ def embed_missing(db: Database, config: Config, log=print, rebuild: bool = False
                 raise ValueError("embedding 服务在不同文件间返回了不同维度的向量")
         done += 1
         log(f"✓ 已向量化: {row['filename']}")
+        if progress is not None:
+            progress("embedding", current=position, total=total, current_file="")
     _set_embedding_identity(db, config)
     if dimension is not None:
         db.meta_set("embedding_dim", str(dimension))
-    if rebuild:
+    if rebuild_required:
         db.meta_delete("embedding_rebuild_required")
     return done

@@ -256,7 +256,7 @@ def test_settings_api_rejects_a_directory_as_the_database_path(tmp_path: Path):
     assert not config_path.exists()
 
 
-def test_enabling_fallback_requeues_files_skipped_without_an_extractor(tmp_path: Path):
+def test_legacy_fallback_switch_does_not_requeue_without_an_explicit_rule(tmp_path: Path):
     root = tmp_path / "files"
     root.mkdir()
     path = root / "notes.unknown"
@@ -283,8 +283,8 @@ def test_enabling_fallback_requeues_files_skipped_without_an_extractor(tmp_path:
 
     db = Database(cfg.db_path)
     try:
-        assert db.get_file(file_id)["index_status"] == "pending"
-        assert db.get_file(file_id)["error_msg"] is None
+        assert db.get_file(file_id)["index_status"] == "skipped"
+        assert db.get_file(file_id)["error_msg"] == "没有适用的提取器"
     finally:
         db.close()
 
@@ -428,3 +428,49 @@ def test_settings_api_immediately_invalidates_vectors_for_embedding_identity_cha
         assert db.meta_get("embedding_rebuild_required") == "1"
     finally:
         db.close()
+
+
+def test_status_api_exposes_progress_and_capability_switches(tmp_path: Path):
+    root = tmp_path / "files"
+    root.mkdir()
+    cfg = Config(db_path=tmp_path / "index.db", folders=[root], config_path=tmp_path / "config.toml")
+
+    async def request():
+        transport = httpx.ASGITransport(app=create_app(cfg))
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            status = await client.get("/api/status")
+            status_page = await client.get("/status")
+            settings = await client.get("/api/settings")
+        return status, status_page, settings
+
+    status, status_page, settings = asyncio.run(request())
+    assert status.status_code == 200
+    assert set((status.json().get("progress") or {})) >= {"phase", "percent", "current_file"}
+    assert status.json()["models"]["rag"] is False
+    assert status.json()["models"]["agent"] is False
+    assert status_page.status_code == 200
+    assert "实时查看扫描" in status_page.text
+    rules = settings.json()["settings"]["extractors"]["rules"]
+    assert any(rule["id"] == "text" and rule["builtin"] for rule in rules)
+
+
+def test_settings_page_explains_llm_and_python_extension_routes(tmp_path: Path):
+    root = tmp_path / "files"
+    root.mkdir()
+    cfg = Config(db_path=tmp_path / "index.db", folders=[root], config_path=tmp_path / "config.toml")
+
+    async def request():
+        transport = httpx.ASGITransport(app=create_app(cfg))
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            return await client.get("/settings")
+
+    response = asyncio.run(request())
+    assert response.status_code == 200
+    assert "直接索引文本" in response.text
+    assert "传入 LLM" in response.text
+    assert "Python 外置插件" in response.text
+    assert "扩展名 LLM 供应商" in response.text
+    assert "检索 Agent 模型" in response.text
+    assert "实体抽取模型" in response.text
+    assert "语义嵌入模型" in response.text
+    assert "def extract(path, ctx=None)" in response.text

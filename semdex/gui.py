@@ -12,6 +12,22 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .desktop import DesktopController
+from .imagetypes import SUPPORTED_IMAGE_EXTENSIONS
+
+
+def _normalize_extractor_input_mode(extensions_text: str, requested: str) -> str:
+    """Keep raw-image input limited to rules containing only image extensions."""
+    extensions = [
+        value if value.startswith(".") else f".{value}"
+        for value in (
+            part.strip().lower() for part in extensions_text.split(",")
+        )
+        if value
+    ]
+    image_allowed = bool(extensions) and all(
+        extension in SUPPORTED_IMAGE_EXTENSIONS for extension in extensions
+    )
+    return "image" if requested == "image" and image_allowed else "text"
 
 
 class SearchRequestGuard:
@@ -54,6 +70,7 @@ def run_gui(config_path: str | None = None) -> int:
             QMainWindow,
             QMessageBox,
             QPlainTextEdit,
+            QProgressBar,
             QPushButton,
             QScrollArea,
             QSpinBox,
@@ -78,20 +95,25 @@ def run_gui(config_path: str | None = None) -> int:
         """Native form matching the values exposed by the WebUI settings page."""
 
         MODEL_LABELS = [
-            ("llm", "默认 LLM"),
             ("agent", "检索 Agent"),
             ("entities", "实体抽取"),
-            ("fallback", "提取兜底"),
-            ("vision", "图片理解"),
             ("embedding", "语义嵌入"),
         ]
         MODEL_CAPABILITIES = {
-            "llm": "chat",
             "agent": "chat",
             "entities": "chat",
-            "fallback": "chat",
-            "vision": "vision",
             "embedding": "embedding",
+        }
+        MODEL_DESCRIPTIONS = {
+            "agent": (
+                "用于自然语言搜索与问答。它会调用全文、语义、实体和受限文件查看工具，整理结果但不会修改文件。"
+            ),
+            "entities": (
+                "在一级正文索引完成后识别人名、机构、项目和日期等实体，并建立文件间的实体关系。"
+            ),
+            "embedding": (
+                "在一级正文索引上分块生成向量，供语义和混合检索使用；更换模型后必须重建向量库。"
+            ),
         }
 
         def __init__(self, controller: DesktopController, parent: QWidget | None = None):
@@ -106,9 +128,10 @@ def run_gui(config_path: str | None = None) -> int:
             outer = QVBoxLayout(self)
             tabs = QTabWidget()
             tabs.addTab(self._build_storage_tab(), "索引范围")
-            tabs.addTab(self._build_models_tab(), "模型")
-            tabs.addTab(self._build_tools_tab(), "OCR 与语音")
-            tabs.addTab(self._build_features_tab(), "功能")
+            tabs.addTab(self._build_extractors_tab(), "一级索引")
+            tabs.addTab(self._build_models_tab(), "模型与二级索引")
+            tabs.addTab(self._build_tools_tab(), "随附插件参数")
+            tabs.addTab(self._build_features_tab(), "二级索引开关")
             outer.addWidget(tabs)
 
             buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
@@ -234,6 +257,87 @@ def run_gui(config_path: str | None = None) -> int:
 
         def _build_models_tab(self) -> QWidget:
             page, layout = self._scroll_tab()
+
+            providers_box = QGroupBox("LLM 供应商（一级索引）")
+            providers_layout = QVBoxLayout(providers_box)
+            providers_intro = QLabel(
+                "这里的供应商只供扩展名规则的“传入 LLM”方式选择。可同时配置本地模型和云端 / "
+                "OpenAI 兼容接口；初始的“默认 LLM”也可改名或删除。"
+            )
+            providers_intro.setWordWrap(True)
+            providers_intro.setStyleSheet("color: palette(mid);")
+            providers_layout.addWidget(providers_intro)
+            self.provider_tree = QTreeWidget()
+            self.provider_tree.setColumnCount(4)
+            self.provider_tree.setHeaderLabels(["启用", "名称", "来源", "模型"])
+            self.provider_tree.setRootIsDecorated(False)
+            self.provider_tree.setAlternatingRowColors(True)
+            self.provider_tree.setMinimumHeight(150)
+            provider_header = self.provider_tree.header()
+            provider_header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+            provider_header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+            for column in (2, 3):
+                provider_header.setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
+            providers_layout.addWidget(self.provider_tree)
+            provider_actions = QHBoxLayout()
+            add_provider = QPushButton("添加供应商")
+            remove_provider = QPushButton("删除所选供应商")
+            provider_actions.addWidget(add_provider)
+            provider_actions.addWidget(remove_provider)
+            provider_actions.addStretch()
+            providers_layout.addLayout(provider_actions)
+
+            self.provider_editor = QGroupBox("所选供应商")
+            self.provider_editor_form = QFormLayout(self.provider_editor)
+            self.provider_id = QLineEdit()
+            self.provider_id.setReadOnly(True)
+            self.provider_name = QLineEdit()
+            self.provider_enabled = QCheckBox("启用")
+            self.provider_mode = QComboBox()
+            self.provider_mode.addItem("云端 / OpenAI 兼容接口", "openai")
+            self.provider_mode.addItem("本地模型", "local")
+            self.provider_local_model = QComboBox()
+            self.provider_local_model.addItem("未选择", "")
+            self.provider_base_url = QLineEdit()
+            self.provider_base_url.setPlaceholderText("https://api.openai.com/v1")
+            self.provider_model = QLineEdit()
+            self.provider_api_key = QLineEdit()
+            self.provider_api_key.setEchoMode(QLineEdit.EchoMode.Password)
+            self.provider_api_key.setPlaceholderText("留空以保留已保存的密钥")
+            self.provider_clear_api_key = QCheckBox("删除已保存密钥")
+            for label, field in [
+                ("稳定 ID", self.provider_id),
+                ("显示名称", self.provider_name),
+                ("", self.provider_enabled),
+                ("来源", self.provider_mode),
+                ("本地模型", self.provider_local_model),
+                ("接口地址", self.provider_base_url),
+                ("API 模型", self.provider_model),
+                ("API Key", self.provider_api_key),
+                ("", self.provider_clear_api_key),
+            ]:
+                self._form_widget(self.provider_editor_form, label, field)
+            self.provider_editor.setEnabled(False)
+            providers_layout.addWidget(self.provider_editor)
+            self._provider_editor_loading = False
+            self._provider_editor_item: QTreeWidgetItem | None = None
+            add_provider.clicked.connect(self.add_llm_provider)
+            remove_provider.clicked.connect(self.remove_llm_provider)
+            self.provider_tree.currentItemChanged.connect(self.load_llm_provider_editor)
+            self.provider_tree.itemChanged.connect(self.sync_llm_provider_tree_enabled)
+            self.provider_name.textChanged.connect(self.apply_llm_provider_editor)
+            self.provider_enabled.toggled.connect(self.apply_llm_provider_editor)
+            self.provider_mode.currentIndexChanged.connect(self.apply_llm_provider_editor)
+            self.provider_local_model.currentIndexChanged.connect(self.apply_llm_provider_editor)
+            self.provider_base_url.textChanged.connect(self.apply_llm_provider_editor)
+            self.provider_model.textChanged.connect(self.apply_llm_provider_editor)
+            self.provider_api_key.textChanged.connect(self.apply_llm_provider_editor)
+            self.provider_clear_api_key.toggled.connect(self.apply_llm_provider_editor)
+            layout.addWidget(providers_box)
+
+            secondary_title = QLabel("独立模型（检索与二级索引）")
+            secondary_title.setStyleSheet("font-size: 14px; font-weight: 600;")
+            layout.addWidget(secondary_title)
             self.model_fields: dict[str, dict[str, Any]] = {}
             grid = QGridLayout()
             grid.setHorizontalSpacing(12)
@@ -241,6 +345,9 @@ def run_gui(config_path: str | None = None) -> int:
             for index, (name, label) in enumerate(self.MODEL_LABELS):
                 box = QGroupBox(label)
                 form = QFormLayout(box)
+                description = QLabel(self.MODEL_DESCRIPTIONS[name])
+                description.setWordWrap(True)
+                description.setStyleSheet("font-size: 11px;")
                 enabled = QCheckBox("启用")
                 mode = QComboBox()
                 mode.addItem("OpenAI API", "openai")
@@ -254,6 +361,7 @@ def run_gui(config_path: str | None = None) -> int:
                 api_key.setEchoMode(QLineEdit.EchoMode.Password)
                 api_key.setPlaceholderText("留空以保留已保存的密钥")
                 clear = QCheckBox("删除已保存密钥")
+                form.addRow(description)
                 self._form_widget(form, "", enabled)
                 self._form_widget(form, "来源", mode)
                 self._form_widget(form, "本地模型", local_model)
@@ -289,6 +397,18 @@ def run_gui(config_path: str | None = None) -> int:
             model_dir_layout.addWidget(self.local_model_dir)
             model_dir_layout.addWidget(open_model_dir)
             self._form_widget(manager, "模型目录", model_dir_row)
+            embedding_guide = QLabel(
+                "语义嵌入模型可从 <a href='https://huggingface.co/models?pipeline_tag=feature-extraction'>"
+                "Hugging Face</a> 或 <a href='https://modelscope.cn/models'>ModelScope</a> 下载。"
+                "GGUF 直接放入此目录；MLX 模型放入独立子文件夹，至少包含 config.json 和一个 "
+                ".safetensors（或 consolidated.*）权重文件。目录名会成为本地模型 ID，并应含 embedding、"
+                "bge、e5、nomic、gte 或 jina 之一（或让 config.json 的模型信息包含这些标识），才能识别为向量模型；"
+                "同时保留该模型的 tokenizer 文件。选择后可在下方按用途提前加载或卸载，未提前加载时会在首次调用时按需加载。"
+            )
+            embedding_guide.setWordWrap(True)
+            embedding_guide.setOpenExternalLinks(True)
+            embedding_guide.setStyleSheet("font-size: 11px; color: palette(mid);")
+            self._form_widget(manager, "嵌入模型添加", embedding_guide)
             self.local_runtime_status = QLabel()
             self.local_runtime_status.setWordWrap(True)
             self.local_runtime_status.setStyleSheet("color: palette(mid);")
@@ -334,6 +454,597 @@ def run_gui(config_path: str | None = None) -> int:
             layout.addStretch()
             return page
 
+        def add_llm_provider_item(self, provider: dict[str, Any]) -> QTreeWidgetItem:
+            provider_id = str(provider.get("id", "")).strip()
+            mode = str(provider.get("mode", "openai")).strip().lower()
+            if mode not in {"openai", "local"}:
+                mode = "openai"
+            metadata = {
+                "id": provider_id,
+                "mode": mode,
+                "local_model": str(provider.get("local_model", "")),
+                "base_url": str(provider.get("base_url", "")),
+                "model": str(provider.get("model", "")),
+                "api_key": "",
+                "api_key_configured": bool(provider.get("api_key_configured", False)),
+                "clear_api_key": False,
+            }
+            name = str(provider.get("name", provider_id)).strip() or provider_id
+            model_label = metadata["local_model"] if mode == "local" else metadata["model"]
+            item = QTreeWidgetItem([
+                "",
+                name,
+                "本地" if mode == "local" else "API",
+                model_label or "未设置",
+            ])
+            item.setCheckState(
+                0,
+                Qt.CheckState.Checked if provider.get("enabled", False) else Qt.CheckState.Unchecked,
+            )
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setData(0, Qt.ItemDataRole.UserRole, metadata)
+            self.provider_tree.addTopLevelItem(item)
+            return item
+
+        def add_llm_provider(self) -> None:
+            existing_ids = {
+                str((self.provider_tree.topLevelItem(index).data(0, Qt.ItemDataRole.UserRole) or {}).get("id", ""))
+                for index in range(self.provider_tree.topLevelItemCount())
+            }
+            index = 1
+            while f"provider-{index}" in existing_ids:
+                index += 1
+            item = self.add_llm_provider_item({
+                "id": f"provider-{index}",
+                "name": f"LLM 供应商 {index}",
+                "enabled": False,
+                "mode": "openai",
+                "base_url": "http://localhost:1234/v1",
+                "model": "",
+            })
+            self.provider_tree.setCurrentItem(item)
+            self.refresh_extractor_provider_choices()
+
+        def remove_llm_provider(self) -> None:
+            item = self.provider_tree.currentItem()
+            if item is None:
+                return
+            metadata = item.data(0, Qt.ItemDataRole.UserRole) or {}
+            removed_id = str(metadata.get("id", ""))
+            referenced_rules: list[str] = []
+            for index in range(self.extractor_tree.topLevelItemCount()):
+                rule_item = self.extractor_tree.topLevelItem(index)
+                rule = rule_item.data(0, Qt.ItemDataRole.UserRole) or {}
+                if rule.get("kind") == "llm" and rule.get("provider") == removed_id:
+                    referenced_rules.append(rule_item.text(1) or str(rule.get("id", "")))
+            if referenced_rules:
+                QMessageBox.information(
+                    self,
+                    "LLM 供应商正在使用",
+                    "请先为这些扩展名规则改选 LLM：" + "、".join(referenced_rules),
+                )
+                return
+            self.provider_tree.takeTopLevelItem(self.provider_tree.indexOfTopLevelItem(item))
+            self._provider_editor_item = None
+            self.provider_editor.setEnabled(False)
+            self.refresh_extractor_provider_choices()
+
+        def _sync_provider_source_fields(self) -> None:
+            local = self._combo_value(self.provider_mode) == "local"
+            self._set_form_field_visible(
+                self.provider_editor_form, self.provider_local_model, local
+            )
+            for widget in (
+                self.provider_base_url,
+                self.provider_model,
+                self.provider_api_key,
+                self.provider_clear_api_key,
+            ):
+                self._set_form_field_visible(self.provider_editor_form, widget, not local)
+
+        def load_llm_provider_editor(
+            self,
+            item: QTreeWidgetItem | None,
+            _previous: QTreeWidgetItem | None = None,
+        ) -> None:
+            self._provider_editor_loading = True
+            self._provider_editor_item = item
+            if item is None:
+                self.provider_editor.setEnabled(False)
+                self._provider_editor_loading = False
+                return
+            metadata = dict(item.data(0, Qt.ItemDataRole.UserRole) or {})
+            self.provider_editor.setEnabled(True)
+            self.provider_id.setText(str(metadata.get("id", "")))
+            self.provider_name.setText(item.text(1))
+            self.provider_enabled.setChecked(item.checkState(0) == Qt.CheckState.Checked)
+            self._set_combo(self.provider_mode, str(metadata.get("mode", "openai")))
+            self._set_combo(self.provider_local_model, str(metadata.get("local_model", "")))
+            self.provider_base_url.setText(str(metadata.get("base_url", "")))
+            self.provider_model.setText(str(metadata.get("model", "")))
+            self.provider_api_key.setText(str(metadata.get("api_key", "")))
+            self.provider_clear_api_key.setChecked(bool(metadata.get("clear_api_key", False)))
+            self.provider_api_key.setPlaceholderText(
+                "已保存；留空以保留"
+                if metadata.get("api_key_configured") else "留空表示不设置"
+            )
+            self._sync_provider_source_fields()
+            self._provider_editor_loading = False
+
+        def apply_llm_provider_editor(self, *_args: Any) -> None:
+            if self._provider_editor_loading or self._provider_editor_item is None:
+                return
+            item = self._provider_editor_item
+            metadata = dict(item.data(0, Qt.ItemDataRole.UserRole) or {})
+            mode = self._combo_value(self.provider_mode)
+            metadata.update({
+                "mode": mode,
+                "local_model": self._combo_value(self.provider_local_model),
+                "base_url": self.provider_base_url.text().strip(),
+                "model": self.provider_model.text().strip(),
+                "api_key": self.provider_api_key.text().strip(),
+                "clear_api_key": self.provider_clear_api_key.isChecked(),
+            })
+            name = self.provider_name.text().strip() or str(metadata.get("id", ""))
+            item.setText(1, name)
+            item.setText(2, "本地" if mode == "local" else "API")
+            selected_model = metadata["local_model"] if mode == "local" else metadata["model"]
+            item.setText(3, selected_model or "未设置")
+            item.setCheckState(
+                0,
+                Qt.CheckState.Checked if self.provider_enabled.isChecked() else Qt.CheckState.Unchecked,
+            )
+            item.setData(0, Qt.ItemDataRole.UserRole, metadata)
+            self._sync_provider_source_fields()
+            self.refresh_extractor_provider_choices()
+
+        def sync_llm_provider_tree_enabled(
+            self,
+            item: QTreeWidgetItem,
+            column: int,
+        ) -> None:
+            if (
+                self._provider_editor_loading
+                or column != 0
+                or item is not self._provider_editor_item
+            ):
+                return
+            checked = item.checkState(0) == Qt.CheckState.Checked
+            if self.provider_enabled.isChecked() == checked:
+                return
+            self._provider_editor_loading = True
+            self.provider_enabled.setChecked(checked)
+            self._provider_editor_loading = False
+
+        def refresh_extractor_provider_choices(self) -> None:
+            current = self._combo_value(self.extractor_provider)
+            providers: list[tuple[str, str]] = []
+            for index in range(self.provider_tree.topLevelItemCount()):
+                item = self.provider_tree.topLevelItem(index)
+                metadata = item.data(0, Qt.ItemDataRole.UserRole) or {}
+                provider_id = str(metadata.get("id", ""))
+                if provider_id:
+                    providers.append((provider_id, item.text(1) or provider_id))
+            self.extractor_provider.blockSignals(True)
+            self.extractor_provider.clear()
+            self.extractor_provider.addItem("未选择", "")
+            for provider_id, name in providers:
+                self.extractor_provider.addItem(name, provider_id)
+            self._set_combo(self.extractor_provider, current)
+            self.extractor_provider.blockSignals(False)
+            for index in range(self.extractor_tree.topLevelItemCount()):
+                item = self.extractor_tree.topLevelItem(index)
+                metadata = item.data(0, Qt.ItemDataRole.UserRole) or {}
+                if metadata.get("kind") == "llm":
+                    item.setText(4, self._extractor_settings_summary(metadata))
+
+        def _build_extractors_tab(self) -> QWidget:
+            page, layout = self._scroll_tab()
+            box = QGroupBox("扩展名与索引方式")
+            box_layout = QVBoxLayout(box)
+            intro = QLabel(
+                "这里建立一级正文索引。每条扩展名规则只使用三种方式之一：直接索引文本、传入 LLM、"
+                "Python 外置插件。语义向量和实体关系会在这份正文库之上继续建立。"
+            )
+            intro.setWordWrap(True)
+            intro.setStyleSheet("color: palette(mid);")
+            box_layout.addWidget(intro)
+            self.extractor_dir = QLineEdit()
+            self.extractor_dir.setReadOnly(True)
+            open_directory = QPushButton("打开目录")
+            refresh_scripts = QPushButton("刷新插件列表")
+            directory_row = QWidget()
+            directory_layout = QHBoxLayout(directory_row)
+            directory_layout.setContentsMargins(0, 0, 0, 0)
+            directory_layout.addWidget(QLabel("Python 插件目录"))
+            directory_layout.addWidget(self.extractor_dir, 1)
+            directory_layout.addWidget(open_directory)
+            directory_layout.addWidget(refresh_scripts)
+            box_layout.addWidget(directory_row)
+
+            guide = QGroupBox("Python 外置插件设置指引")
+            guide_layout = QVBoxLayout(guide)
+            guide_text = QLabel(
+                "每个插件使用一个独立文件夹，入口固定为 plugin.py。函数接收安全快照路径（可选第二个 ctx 参数），"
+                "返回字符串、字节串或其他可转成字符串的值作为一级索引正文。插件会执行本地 Python 代码，"
+                "只放入可信插件。OCR 与语音识别也是同一种插件。"
+            )
+            guide_text.setWordWrap(True)
+            guide_text.setStyleSheet("font-size: 11px;")
+            guide_example = QPlainTextEdit()
+            guide_example.setReadOnly(True)
+            guide_example.setPlainText(
+                "extractors/my_plugin/plugin.py\n\n"
+                "from pathlib import Path\n\n"
+                "def extract(path: Path) -> str:\n"
+                "    return path.read_text(encoding='utf-8', errors='replace')"
+            )
+            guide_example.setFixedHeight(112)
+            guide_layout.addWidget(guide_text)
+            guide_layout.addWidget(guide_example)
+            box_layout.addWidget(guide)
+
+            self.extractor_tree = QTreeWidget()
+            self.extractor_tree.setColumnCount(5)
+            self.extractor_tree.setHeaderLabels(["启用", "规则", "扩展名（逗号分隔）", "索引方式", "当前设置"])
+            self.extractor_tree.setRootIsDecorated(False)
+            self.extractor_tree.setAlternatingRowColors(True)
+            self.extractor_tree.setMinimumHeight(240)
+            header = self.extractor_tree.header()
+            header.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+            header.setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+            header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+            for column in (3, 4):
+                header.setSectionResizeMode(column, QHeaderView.ResizeMode.ResizeToContents)
+            box_layout.addWidget(self.extractor_tree)
+            actions = QHBoxLayout()
+            add = QPushButton("添加自定义规则")
+            remove = QPushButton("删除所选自定义规则")
+            actions.addWidget(add)
+            actions.addWidget(remove)
+            actions.addStretch()
+            box_layout.addLayout(actions)
+
+            self.extractor_editor = QGroupBox("所选规则")
+            self.extractor_editor_form = QFormLayout(self.extractor_editor)
+            self.extractor_label = QLineEdit()
+            self.extractor_extensions = QLineEdit()
+            self.extractor_extensions.setPlaceholderText(".abc, .xyz")
+            self.extractor_kind = QComboBox()
+            self.extractor_kind.addItem("直接索引文本", "text")
+            self.extractor_kind.addItem("传入 LLM", "llm")
+            self.extractor_kind.addItem("Python 外置插件", "python")
+            self.extractor_provider = QComboBox()
+            self.extractor_provider.addItem("未选择", "")
+            self.extractor_input_mode = QComboBox()
+            self.extractor_input_mode.addItem("先提取为文本后传入", "text")
+            self.extractor_input_mode.addItem("作为图片传入多模态模型", "image")
+            self.extractor_prompt = QPlainTextEdit()
+            self.extractor_prompt.setPlaceholderText("例如：提取与检索有关的事实、标题和关键词，保留原文中的名称与日期。")
+            self.extractor_prompt.setFixedHeight(76)
+            self.extractor_plugin = QComboBox()
+            self.extractor_plugin.setEditable(True)
+            self.extractor_plugin.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
+            self.extractor_plugin.setToolTip("填写插件目录中的单个文件夹名；旧版 .py 文件名仍可兼容")
+            self.extractor_function = QLineEdit()
+            self.extractor_function.setPlaceholderText("extract")
+            self.extractor_kind_hint = QLabel()
+            self.extractor_kind_hint.setWordWrap(True)
+            self.extractor_kind_hint.setStyleSheet("font-size: 11px;")
+            self._form_widget(self.extractor_editor_form, "规则名称", self.extractor_label)
+            self._form_widget(self.extractor_editor_form, "扩展名", self.extractor_extensions)
+            self._form_widget(self.extractor_editor_form, "索引方式", self.extractor_kind)
+            self._form_widget(self.extractor_editor_form, "LLM 供应商", self.extractor_provider)
+            self._form_widget(self.extractor_editor_form, "传入方式", self.extractor_input_mode)
+            self._form_widget(self.extractor_editor_form, "处理 Prompt", self.extractor_prompt)
+            self._form_widget(self.extractor_editor_form, "插件文件夹", self.extractor_plugin)
+            self._form_widget(self.extractor_editor_form, "调用函数", self.extractor_function)
+            self.extractor_editor_form.addRow(self.extractor_kind_hint)
+            self.extractor_editor.setEnabled(False)
+            box_layout.addWidget(self.extractor_editor)
+
+            add.clicked.connect(self.add_extractor_rule)
+            remove.clicked.connect(self.remove_extractor_rule)
+            open_directory.clicked.connect(self.open_extractor_directory)
+            refresh_scripts.clicked.connect(self.refresh_extractor_plugins)
+            self.extractor_tree.currentItemChanged.connect(self.load_extractor_editor)
+            self.extractor_label.textChanged.connect(self.apply_extractor_editor)
+            self.extractor_extensions.textChanged.connect(self.apply_extractor_editor)
+            self.extractor_kind.currentIndexChanged.connect(self.apply_extractor_editor)
+            self.extractor_provider.currentIndexChanged.connect(self.apply_extractor_editor)
+            self.extractor_input_mode.currentIndexChanged.connect(self.apply_extractor_editor)
+            self.extractor_prompt.textChanged.connect(self.apply_extractor_editor)
+            self.extractor_plugin.currentTextChanged.connect(self.apply_extractor_editor)
+            self.extractor_function.textChanged.connect(self.apply_extractor_editor)
+            self._extractor_editor_loading = False
+            self._extractor_editor_item: QTreeWidgetItem | None = None
+            layout.addWidget(box)
+            layout.addStretch()
+            return page
+
+        def add_extractor_rule(self) -> None:
+            existing_ids = {
+                str((self.extractor_tree.topLevelItem(index).data(0, Qt.ItemDataRole.UserRole) or {}).get("id", ""))
+                for index in range(self.extractor_tree.topLevelItemCount())
+            }
+            index = 1
+            while f"custom-{index}" in existing_ids:
+                index += 1
+            item = self.add_extractor_item({
+                "id": f"custom-{index}",
+                "label": f"自定义规则 {index}",
+                "extensions": [".custom"],
+                "kind": "text",
+                "enabled": True,
+                "provider": "",
+                "input_mode": "text",
+                "prompt": "",
+                "plugin": "",
+                "function": "extract",
+                "builtin": False,
+            })
+            self.extractor_tree.setCurrentItem(item)
+
+        def remove_extractor_rule(self) -> None:
+            item = self.extractor_tree.currentItem()
+            if item is None:
+                return
+            metadata = item.data(0, Qt.ItemDataRole.UserRole) or {}
+            if metadata.get("builtin"):
+                QMessageBox.information(self, "内置规则", "内置规则可更改扩展名和索引方式，但不能删除")
+                return
+            self.extractor_tree.takeTopLevelItem(self.extractor_tree.indexOfTopLevelItem(item))
+
+        @staticmethod
+        def _extractor_kind_label(kind: str) -> str:
+            return {
+                "text": "直接索引文本",
+                "llm": "传入 LLM",
+                "python": "Python 外置插件",
+            }.get(kind, kind)
+
+        def _extractor_provider_label(self, provider_id: str) -> str:
+            index = self.extractor_provider.findData(provider_id)
+            return self.extractor_provider.itemText(index) if index >= 0 else (provider_id or "未选择供应商")
+
+        def _extractor_settings_summary(self, metadata: dict[str, Any]) -> str:
+            kind = str(metadata.get("kind", "python"))
+            if kind == "text":
+                return "确定性解析为一级正文"
+            if kind == "llm":
+                provider = self._extractor_provider_label(str(metadata.get("provider", "")))
+                mode = "图片" if metadata.get("input_mode") == "image" else "文本"
+                return f"{provider} · {mode}"
+            plugin = str(metadata.get("plugin", "")).strip() or "未设置插件"
+            function = str(metadata.get("function", "extract")).strip() or "extract"
+            return f"{plugin} / {function}"
+
+        def add_extractor_item(self, rule: dict[str, Any]) -> QTreeWidgetItem:
+            rule_id = str(rule.get("id", ""))
+            builtin = bool(rule.get("builtin", False))
+            if not builtin:
+                builtin = rule_id in {
+                    "text", "pdf", "docx", "xlsx", "pptx", "legacy_office", "image", "zip", "eml", "mbox", "asr"
+                }
+            kind = str(rule.get("kind", "text")).lower()
+            if kind == "builtin":
+                kind = "text"
+            if kind not in {"text", "llm", "python"}:
+                kind = "text"
+            metadata = {
+                "id": rule_id,
+                "builtin": builtin,
+                "kind": kind,
+                "provider": str(rule.get("provider", "")),
+                "input_mode": str(rule.get("input_mode", "text")),
+                "prompt": str(rule.get("prompt", "")),
+                "plugin": str(rule.get("plugin", rule.get("script", ""))),
+                "function": str(rule.get("function", "extract") or "extract"),
+            }
+            item = QTreeWidgetItem([
+                "",
+                str(rule.get("label", rule_id)),
+                ", ".join(str(ext) for ext in rule.get("extensions", [])),
+                self._extractor_kind_label(kind),
+                self._extractor_settings_summary(metadata),
+            ])
+            item.setCheckState(
+                0,
+                Qt.CheckState.Checked if rule.get("enabled", True) else Qt.CheckState.Unchecked,
+            )
+            item.setData(0, Qt.ItemDataRole.UserRole, metadata)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            self.extractor_tree.addTopLevelItem(item)
+            return item
+
+        def _sync_extractor_editor_fields(self, metadata: dict[str, Any]) -> None:
+            kind = str(metadata.get("kind", "python"))
+            builtin = bool(metadata.get("builtin", False))
+            self._set_form_field_visible(
+                self.extractor_editor_form, self.extractor_provider, kind == "llm"
+            )
+            self._set_form_field_visible(
+                self.extractor_editor_form, self.extractor_input_mode, kind == "llm"
+            )
+            self._set_form_field_visible(
+                self.extractor_editor_form, self.extractor_prompt, kind == "llm"
+            )
+            self._set_form_field_visible(
+                self.extractor_editor_form, self.extractor_plugin, kind == "python"
+            )
+            self._set_form_field_visible(
+                self.extractor_editor_form, self.extractor_function, kind == "python"
+            )
+            image_allowed = _normalize_extractor_input_mode(
+                self.extractor_extensions.text(), "image"
+            ) == "image"
+            image_index = self.extractor_input_mode.findData("image")
+            image_item = self.extractor_input_mode.model().item(image_index)
+            if image_item is not None:
+                image_item.setEnabled(image_allowed)
+            if kind == "text":
+                hint = "直接生成一级正文；PDF、Office、压缩包和邮件仍会使用对应的确定性格式解析器。"
+            elif kind == "llm":
+                hint = (
+                    "文本模式会先用确定性解析器或插件得到文本；图片模式把图片作为多模态输入。"
+                    "原始图片仅支持 PNG、JPEG、WebP、GIF 和 BMP；PDF 或文档请使用文本模式或 Python 插件。"
+                    "处理 Prompt 只对这一条扩展名规则生效。"
+                )
+            else:
+                hint = "从插件目录加载 <文件夹>/plugin.py，并调用指定函数返回一级索引正文。"
+            if builtin:
+                hint += " 这是内置规则，名称与 ID 固定，但扩展名、开关和索引方式可调整。"
+            self.extractor_kind_hint.setText(hint)
+
+        def load_extractor_editor(
+            self,
+            item: QTreeWidgetItem | None,
+            _previous: QTreeWidgetItem | None = None,
+        ) -> None:
+            self._extractor_editor_loading = True
+            self._extractor_editor_item = item
+            if item is None:
+                self.extractor_editor.setEnabled(False)
+                self._extractor_editor_loading = False
+                return
+            metadata = dict(item.data(0, Qt.ItemDataRole.UserRole) or {})
+            builtin = bool(metadata.get("builtin", False))
+            kind = str(metadata.get("kind", "text")).lower()
+            if kind == "builtin":
+                kind = "text"
+            if kind not in {"text", "llm", "python"}:
+                kind = "text"
+            metadata["kind"] = kind
+            metadata["provider"] = str(metadata.get("provider", ""))
+            metadata["input_mode"] = (
+                "image" if str(metadata.get("input_mode", "text")) == "image" else "text"
+            )
+            metadata["function"] = str(metadata.get("function", "extract") or "extract")
+            self.extractor_editor.setEnabled(True)
+            self.extractor_label.setReadOnly(builtin)
+            self.extractor_label.setText(item.text(1))
+            self.extractor_extensions.setText(item.text(2))
+            self._set_combo(self.extractor_kind, kind)
+            self._set_combo(self.extractor_provider, metadata["provider"])
+            self._set_combo(self.extractor_input_mode, metadata["input_mode"])
+            self.extractor_prompt.setPlainText(str(metadata.get("prompt", "")))
+            self._set_combo(self.extractor_plugin, str(metadata.get("plugin", "")))
+            self.extractor_function.setText(metadata["function"])
+            self._sync_extractor_editor_fields(metadata)
+            self._extractor_editor_loading = False
+
+        def apply_extractor_editor(self, *_args: Any) -> None:
+            if self._extractor_editor_loading or self._extractor_editor_item is None:
+                return
+            item = self._extractor_editor_item
+            metadata = dict(item.data(0, Qt.ItemDataRole.UserRole) or {})
+            builtin = bool(metadata.get("builtin", False))
+            kind = self._combo_value(self.extractor_kind).lower()
+            if kind not in {"text", "llm", "python"}:
+                kind = "text"
+                self._extractor_editor_loading = True
+                self._set_combo(self.extractor_kind, kind)
+                self._extractor_editor_loading = False
+            input_mode = _normalize_extractor_input_mode(
+                self.extractor_extensions.text(),
+                self._combo_value(self.extractor_input_mode),
+            )
+            if input_mode != self._combo_value(self.extractor_input_mode):
+                signals_were_blocked = self.extractor_input_mode.blockSignals(True)
+                self._set_combo(self.extractor_input_mode, input_mode)
+                self.extractor_input_mode.blockSignals(signals_were_blocked)
+            metadata.update({
+                "kind": kind,
+                "provider": self._combo_value(self.extractor_provider),
+                "input_mode": input_mode,
+                "prompt": self.extractor_prompt.toPlainText().strip(),
+                "plugin": self.extractor_plugin.currentText().strip(),
+                "function": self.extractor_function.text().strip() or "extract",
+            })
+            if not builtin:
+                item.setText(1, self.extractor_label.text().strip() or str(metadata.get("id", "")))
+            item.setText(2, self.extractor_extensions.text().strip())
+            item.setText(3, self._extractor_kind_label(kind))
+            item.setText(4, self._extractor_settings_summary(metadata))
+            item.setData(0, Qt.ItemDataRole.UserRole, metadata)
+            self._sync_extractor_editor_fields(metadata)
+
+        def open_extractor_directory(self) -> None:
+            directory_text = self.extractor_dir.text().strip()
+            if not directory_text:
+                QMessageBox.warning(self, "无法打开目录", "Python 插件目录尚不可用")
+                return
+            directory = Path(directory_text).expanduser()
+            try:
+                directory.mkdir(parents=True, exist_ok=True)
+            except OSError as exc:
+                QMessageBox.warning(self, "无法打开目录", f"无法创建 Python 插件目录：{exc}")
+                return
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(directory)))
+
+        def refresh_extractor_plugins(self) -> None:
+            from .extractors.script import discover_python_plugins
+
+            directory_text = self.extractor_dir.text().strip()
+            current = self.extractor_plugin.currentText().strip()
+            plugins: list[dict[str, Any]] = []
+            if directory_text:
+                directory = Path(directory_text).expanduser()
+                try:
+                    directory.mkdir(parents=True, exist_ok=True)
+                    plugins = [
+                        plugin.as_dict()
+                        for plugin in discover_python_plugins(directory)
+                    ]
+                except OSError as exc:
+                    QMessageBox.warning(self, "无法读取插件目录", str(exc))
+                    return
+            self._render_extractor_plugins(plugins, current=current)
+
+        def _render_extractor_plugins(
+            self,
+            plugins: list[dict[str, Any]],
+            *,
+            current: str = "",
+        ) -> None:
+            self._plugin_catalog = plugins
+            self.extractor_plugin.blockSignals(True)
+            self.extractor_plugin.clear()
+            self.extractor_plugin.addItem("输入插件文件夹名", "")
+            for plugin in plugins:
+                plugin_id = str(plugin.get("id", plugin.get("folder", ""))).strip()
+                if not plugin_id:
+                    continue
+                name = str(plugin.get("name", plugin_id)).strip() or plugin_id
+                available = plugin.get("available", True) is not False
+                error = str(plugin.get("error", "")).strip()
+                label = f"{name} ({plugin_id})"
+                if not available:
+                    label += f" - 不可用：{error or '插件无效'}"
+                self.extractor_plugin.addItem(label, plugin_id)
+                index = self.extractor_plugin.count() - 1
+                detail = "\n".join(
+                    value for value in (
+                        str(plugin.get("description", "")).strip(),
+                        str(plugin.get("path", "")).strip(),
+                        error,
+                    ) if value
+                )
+                if detail:
+                    self.extractor_plugin.setItemData(
+                        index, detail, Qt.ItemDataRole.ToolTipRole
+                    )
+            known = {
+                str(plugin.get("id", plugin.get("folder", ""))).strip()
+                for plugin in plugins
+            }
+            if current and current not in known:
+                self.extractor_plugin.addItem(
+                    f"{current}（当前配置，尚未发现）", current
+                )
+            self._set_combo(self.extractor_plugin, current)
+            self.extractor_plugin.blockSignals(False)
+
         def _set_form_field_visible(self, form: QFormLayout, widget: QWidget, visible: bool) -> None:
             widget.setVisible(visible)
             label = form.labelForField(widget)
@@ -352,6 +1063,8 @@ def run_gui(config_path: str | None = None) -> int:
             local = self._combo_value(self.asr_provider) == "local"
             self._set_form_field_visible(self.asr_form, self.asr_local_model, local)
             self._set_form_field_visible(self.asr_form, self.asr_local_backend, local)
+            self._set_form_field_visible(self.asr_form, self.asr_device, local)
+            self._set_form_field_visible(self.asr_form, self.asr_compute_type, local)
             for widget in self.asr_api_widgets:
                 self._set_form_field_visible(self.asr_form, widget, not local)
 
@@ -442,6 +1155,7 @@ def run_gui(config_path: str | None = None) -> int:
                 for name, fields in self.model_fields.items()
             }
             current_values["asr"] = self._combo_value(self.asr_local_model)
+            current_provider_model = self._combo_value(self.provider_local_model)
             for name, fields in self.model_fields.items():
                 self._populate_local_model_combo(
                     fields["local_model"],
@@ -449,6 +1163,9 @@ def run_gui(config_path: str | None = None) -> int:
                     self.MODEL_CAPABILITIES[name],
                 )
             self._populate_local_model_combo(self.asr_local_model, current_values["asr"], "asr")
+            self._populate_local_model_combo(
+                self.provider_local_model, current_provider_model, "chat"
+            )
 
             self.local_models_tree.clear()
             models = self._model_catalog.get("models", [])
@@ -535,6 +1252,14 @@ def run_gui(config_path: str | None = None) -> int:
         def _build_tools_tab(self) -> QWidget:
             page, layout = self._scroll_tab()
 
+            intro = QLabel(
+                "OCR 和语音识别现在通过插件目录中的 ocr/plugin.py 与 asr/plugin.py 执行。"
+                "这里仅配置这两个随附插件依赖的服务参数；删除或替换插件文件夹后，自定义插件可完全接管处理。"
+            )
+            intro.setWordWrap(True)
+            intro.setStyleSheet("color: palette(mid);")
+            layout.addWidget(intro)
+
             ocr_box = QGroupBox("OCR")
             ocr = QFormLayout(ocr_box)
             self.ocr_enabled = QCheckBox("启用")
@@ -573,6 +1298,15 @@ def run_gui(config_path: str | None = None) -> int:
             self.asr_local_backend.addItem("faster-whisper", "faster_whisper")
             self.asr_local_backend.addItem("whisper.cpp", "whisper_cpp")
             self.asr_local_backend.addItem("MLX Whisper", "mlx_whisper")
+            self.asr_device = QComboBox()
+            self.asr_device.addItem("自动", "auto")
+            self.asr_device.addItem("CPU", "cpu")
+            self.asr_device.addItem("CUDA", "cuda")
+            self.asr_compute_type = QComboBox()
+            self.asr_compute_type.addItem("int8", "int8")
+            self.asr_compute_type.addItem("float16", "float16")
+            self.asr_compute_type.addItem("float32", "float32")
+            self.asr_compute_type.addItem("int8_float16", "int8_float16")
             self.asr_model = QLineEdit()
             self.asr_base_url = QLineEdit()
             self.asr_endpoint = QLineEdit()
@@ -585,7 +1319,8 @@ def run_gui(config_path: str | None = None) -> int:
             self.asr_timeout = self._int_box(1)
             for label, field in [
                 ("", self.asr_enabled), ("来源", self.asr_provider), ("本地模型", self.asr_local_model),
-                ("本地后端", self.asr_local_backend), ("API 模型", self.asr_model),
+                ("本地后端", self.asr_local_backend), ("运行设备", self.asr_device),
+                ("计算精度", self.asr_compute_type), ("API 模型", self.asr_model),
                 ("接口基地址", self.asr_base_url), ("转写接口", self.asr_endpoint),
                 ("语言", self.asr_language), ("响应文本路径", self.asr_response_path),
                 ("API Key", self.asr_api_key), ("", self.asr_clear_api_key), ("超时（秒）", self.asr_timeout),
@@ -609,20 +1344,22 @@ def run_gui(config_path: str | None = None) -> int:
 
         def _build_features_tab(self) -> QWidget:
             page, layout = self._scroll_tab()
-            box = QGroupBox("功能开关")
+            box = QGroupBox("基于一级正文索引建立")
             form = QFormLayout(box)
             self.entities_enabled = QCheckBox("启用实体关系")
             self.entities_max_chars = self._int_box(500)
             self.entities_max_per_file = self._int_box(1)
             self.agent_max_steps = self._int_box(1)
             self.agent_max_results = self._int_box(1)
-            self.fallback_enabled = QCheckBox("启用提取兜底")
-            self.fallback_max_bytes = self._int_box(1024)
+            self.agent_enabled = QCheckBox("启用 LLM 工具搜索")
+            self.rag_enabled = QCheckBox("启用 RAG 语义检索")
+            self.rag_max_context_chunks = self._int_box(1)
             for label, field in [
+                ("", self.rag_enabled), ("RAG 最大上下文片段数", self.rag_max_context_chunks),
+                ("", self.agent_enabled),
                 ("", self.entities_enabled), ("实体最大文本长度", self.entities_max_chars),
                 ("每文件最多实体", self.entities_max_per_file), ("Agent 最大步骤", self.agent_max_steps),
-                ("Agent 最大结果数", self.agent_max_results), ("", self.fallback_enabled),
-                ("兜底读取上限（字节）", self.fallback_max_bytes),
+                ("Agent 最大结果数", self.agent_max_results),
             ]:
                 self._form_widget(form, label, field)
             layout.addWidget(box)
@@ -664,8 +1401,64 @@ def run_gui(config_path: str | None = None) -> int:
             self.reconcile.setValue(int(settings.get("watch_reconcile_sec", 86400)))
             self.chunk_size.setValue(int(settings.get("chunk_size", 800)))
             self.chunk_overlap.setValue(int(settings.get("chunk_overlap", 100)))
+
+            self._provider_editor_loading = True
+            self._provider_editor_item = None
+            self.provider_tree.clear()
+            providers = settings.get("llm_providers", [])
+            if not isinstance(providers, list):
+                providers = []
+            for provider in providers:
+                if isinstance(provider, dict):
+                    self.add_llm_provider_item(provider)
+            self._provider_editor_loading = False
+            self.refresh_extractor_provider_choices()
+            first_provider = self.provider_tree.topLevelItem(0)
+            if first_provider is not None:
+                self.provider_tree.setCurrentItem(first_provider)
+                self.load_llm_provider_editor(first_provider)
+            else:
+                self.load_llm_provider_editor(None)
+
+            extractors = settings.get("extractors", {})
+            if not isinstance(extractors, dict):
+                extractors = {}
+            self.extractor_dir.setText(str(
+                extractors.get("plugin_dir", extractors.get("custom_dir", ""))
+            ))
+            self._extractor_editor_loading = True
+            self._extractor_editor_item = None
+            self.extractor_tree.clear()
+            raw_rules = extractors.get("rules", [])
+            if not isinstance(raw_rules, list):
+                raw_rules = []
+            for rule in raw_rules:
+                if not isinstance(rule, dict):
+                    continue
+                self.add_extractor_item(rule)
+            raw_plugins = extractors.get("plugins", [])
+            plugins = [
+                plugin for plugin in raw_plugins
+                if isinstance(plugin, dict)
+            ] if isinstance(raw_plugins, list) else []
+            if plugins:
+                self._render_extractor_plugins(plugins)
+            else:
+                self.refresh_extractor_plugins()
+            self._extractor_editor_loading = False
+            first_rule = self.extractor_tree.topLevelItem(0)
+            if first_rule is not None:
+                self.extractor_tree.setCurrentItem(first_rule)
+                self.load_extractor_editor(first_rule)
+            else:
+                self.load_extractor_editor(None)
+            model_settings = settings.get("models", {})
+            if not isinstance(model_settings, dict):
+                model_settings = {}
             for name, fields in self.model_fields.items():
-                model = settings.get("models", {}).get(name, {})
+                model = model_settings.get(name, {})
+                if not isinstance(model, dict):
+                    model = {}
                 fields["enabled"].setChecked(bool(model.get("enabled", False)))
                 self._set_combo(fields["mode"], str(model.get("mode", "openai")))
                 self._set_combo(fields["local_model"], str(model.get("local_model", "")))
@@ -703,6 +1496,8 @@ def run_gui(config_path: str | None = None) -> int:
                 local_model = str(asr.get("model", ""))
             self._set_combo(self.asr_local_model, local_model)
             self._set_combo(self.asr_local_backend, str(asr.get("local_backend", "auto")))
+            self._set_combo(self.asr_device, str(asr.get("device", "auto")))
+            self._set_combo(self.asr_compute_type, str(asr.get("compute_type", "int8")))
             self.asr_model.setText(str(asr.get("model", "base")))
             self.asr_base_url.setText(str(asr.get("base_url", "")))
             self.asr_endpoint.setText(str(asr.get("endpoint", "")))
@@ -717,19 +1512,56 @@ def run_gui(config_path: str | None = None) -> int:
 
             entities = settings.get("entities", {})
             agent = settings.get("agent", {})
-            fallback = settings.get("agent_fallback", {})
+            rag = settings.get("rag", {})
+            self.rag_enabled.setChecked(bool(rag.get("enabled", True)))
+            self.rag_max_context_chunks.setValue(int(rag.get("max_context_chunks", 8)))
+            self.agent_enabled.setChecked(bool(agent.get("enabled", True)))
             self.entities_enabled.setChecked(bool(entities.get("enabled", False)))
             self.entities_max_chars.setValue(int(entities.get("max_chars", 12000)))
             self.entities_max_per_file.setValue(int(entities.get("max_per_file", 32)))
             self.agent_max_steps.setValue(int(agent.get("max_steps", 6)))
             self.agent_max_results.setValue(int(agent.get("max_results", 12)))
-            self.fallback_enabled.setChecked(bool(fallback.get("enabled", False)))
-            self.fallback_max_bytes.setValue(int(fallback.get("max_bytes", 262144)))
 
         def payload(self) -> dict[str, Any]:
             if self.chunk_overlap.value() >= self.chunk_size.value():
                 raise ValueError("向量分块重叠必须小于分块大小")
             folders = [self.folder_list.item(index).text() for index in range(self.folder_list.count())]
+            extractor_rules: list[dict[str, Any]] = []
+            for row_index in range(self.extractor_tree.topLevelItemCount()):
+                item = self.extractor_tree.topLevelItem(row_index)
+                metadata = item.data(0, Qt.ItemDataRole.UserRole) or {}
+                rule = {
+                    "id": str(metadata.get("id", "")),
+                    "label": item.text(1),
+                    "kind": str(metadata.get("kind", "text")),
+                    "enabled": item.checkState(0) == Qt.CheckState.Checked,
+                    "extensions": [value.strip() for value in item.text(2).split(",") if value.strip()],
+                    "provider": str(metadata.get("provider", "")),
+                    "input_mode": str(metadata.get("input_mode", "text")),
+                    "prompt": str(metadata.get("prompt", "")),
+                    "plugin": str(metadata.get("plugin", "")),
+                    "function": str(metadata.get("function", "extract") or "extract"),
+                }
+                extractor_rules.append(rule)
+            llm_providers: list[dict[str, Any]] = []
+            for row_index in range(self.provider_tree.topLevelItemCount()):
+                item = self.provider_tree.topLevelItem(row_index)
+                metadata = item.data(0, Qt.ItemDataRole.UserRole) or {}
+                provider = {
+                    "id": str(metadata.get("id", "")),
+                    "name": item.text(1),
+                    "enabled": item.checkState(0) == Qt.CheckState.Checked,
+                    "mode": str(metadata.get("mode", "openai")),
+                    "local_model": str(metadata.get("local_model", "")),
+                    "base_url": str(metadata.get("base_url", "")),
+                    "model": str(metadata.get("model", "")),
+                }
+                api_key = str(metadata.get("api_key", "")).strip()
+                if api_key:
+                    provider["api_key"] = api_key
+                if metadata.get("clear_api_key"):
+                    provider["clear_api_key"] = True
+                llm_providers.append(provider)
             models: dict[str, dict[str, Any]] = {}
             for name, fields in self.model_fields.items():
                 item = {
@@ -766,6 +1598,8 @@ def run_gui(config_path: str | None = None) -> int:
                 "provider": self._combo_value(self.asr_provider),
                 "local_model": self._combo_value(self.asr_local_model),
                 "local_backend": self._combo_value(self.asr_local_backend),
+                "device": self._combo_value(self.asr_device),
+                "compute_type": self._combo_value(self.asr_compute_type),
                 "model": self.asr_model.text().strip(),
                 "base_url": self.asr_base_url.text().strip(),
                 "endpoint": self.asr_endpoint.text().strip(),
@@ -787,6 +1621,8 @@ def run_gui(config_path: str | None = None) -> int:
                 "watch_reconcile_sec": self.reconcile.value(),
                 "chunk_size": self.chunk_size.value(),
                 "chunk_overlap": self.chunk_overlap.value(),
+                "extractors": {"rules": extractor_rules},
+                "llm_providers": llm_providers,
                 "models": models,
                 "ocr": ocr,
                 "asr": asr,
@@ -796,12 +1632,13 @@ def run_gui(config_path: str | None = None) -> int:
                     "max_per_file": self.entities_max_per_file.value(),
                 },
                 "agent": {
+                    "enabled": self.agent_enabled.isChecked(),
                     "max_steps": self.agent_max_steps.value(),
                     "max_results": self.agent_max_results.value(),
                 },
-                "agent_fallback": {
-                    "enabled": self.fallback_enabled.isChecked(),
-                    "max_bytes": self.fallback_max_bytes.value(),
+                "rag": {
+                    "enabled": self.rag_enabled.isChecked(),
+                    "max_context_chunks": self.rag_max_context_chunks.value(),
                 },
             }
 
@@ -840,12 +1677,18 @@ def run_gui(config_path: str | None = None) -> int:
         def _build_ui(self) -> None:
             settings_action = QAction("设置", self)
             settings_action.triggered.connect(self.show_settings)
+            status_action = QAction("索引状态", self)
+            status_action.triggered.connect(self.show_status_panel)
             reindex_action = QAction("重新索引", self)
             reindex_action.triggered.connect(lambda: self.start_index(False))
             rebuild_action = QAction("完整重建", self)
             rebuild_action.triggered.connect(lambda: self.start_index(True))
             toolbar = self.addToolBar("操作")
             toolbar.setMovable(False)
+            view_menu = self.menuBar().addMenu("查看")
+            view_menu.addAction(status_action)
+            view_menu.addAction(settings_action)
+            toolbar.addAction(status_action)
             toolbar.addAction(settings_action)
             toolbar.addSeparator()
             toolbar.addAction(reindex_action)
@@ -868,6 +1711,16 @@ def run_gui(config_path: str | None = None) -> int:
             self.status_label.setWordWrap(True)
             self.status_label.setStyleSheet("padding: 7px 0; color: palette(mid);")
             layout.addWidget(self.status_label)
+            progress_row = QHBoxLayout()
+            self.progress_bar = QProgressBar()
+            self.progress_bar.setRange(0, 100)
+            self.progress_bar.setTextVisible(True)
+            self.progress_detail = QLabel()
+            self.progress_detail.setMinimumWidth(230)
+            self.progress_detail.setStyleSheet("color: palette(mid); font-size: 11px;")
+            progress_row.addWidget(self.progress_bar, 1)
+            progress_row.addWidget(self.progress_detail)
+            layout.addLayout(progress_row)
 
             search_row = QHBoxLayout()
             self.query = QLineEdit()
@@ -968,8 +1821,11 @@ def run_gui(config_path: str | None = None) -> int:
                 if by_status.get(key):
                     pieces.append(f"{label} {by_status[key]}")
             semantic = "需重建" if status["embedding_rebuild_required"] else ("开" if status["models"]["embedding"] else "关")
+            if not status["models"].get("rag", True):
+                semantic = "关"
             pieces.append(f"语义搜索 {semantic}")
-            pieces.append(f"图片识别 {'开' if status['models']['vision'] else '关'}")
+            pieces.append(f"一级 LLM {status['models'].get('llm_providers', 0)} 个")
+            pieces.append(f"Python 插件 {status.get('capabilities', {}).get('plugins', 0)} 个")
             if files.get("entities"):
                 pieces.append(f"实体 {files['entities']}")
             if status["indexing"]:
@@ -981,6 +1837,15 @@ def run_gui(config_path: str | None = None) -> int:
                 if last_run.get("error"):
                     pieces.append(f"上次索引失败：{last_run['error']}")
             self.status_label.setText("  |  ".join(pieces))
+            progress = status.get("progress") or {}
+            self.progress_bar.setValue(int(progress.get("percent", 0)))
+            phase_labels = {
+                "preparing": "准备完整重建", "scanning": "扫描目录", "indexing": "提取与索引",
+                "embedding": "生成向量", "entities": "抽取实体", "complete": "本轮索引完成",
+                "failed": "本轮索引失败", "idle": "空闲",
+            }
+            self.progress_bar.setFormat(f"{phase_labels.get(progress.get('phase'), '索引状态')} %p%")
+            self.progress_detail.setText(str(progress.get("current_file") or ""))
 
         def perform_search(self) -> None:
             generation = self._search_requests.begin()
@@ -1100,6 +1965,111 @@ def run_gui(config_path: str | None = None) -> int:
             if dialog.exec() and dialog.start_after_save:
                 self.start_index(False)
             self.refresh_status()
+
+        def show_status_panel(self) -> None:
+            dialog = QDialog(self)
+            dialog.setWindowTitle("Semdex 索引状态")
+            dialog.resize(760, 520)
+            layout = QVBoxLayout(dialog)
+            intro = QLabel("实时查看当前阶段、文件队列、已启用能力和最近一次索引结果。")
+            intro.setWordWrap(True)
+            intro.setStyleSheet("color: palette(mid);")
+            layout.addWidget(intro)
+            progress = QProgressBar()
+            progress.setRange(0, 100)
+            layout.addWidget(progress)
+            phase = QLabel()
+            phase.setWordWrap(True)
+            phase.setStyleSheet("color: palette(mid);")
+            layout.addWidget(phase)
+            details = QTreeWidget()
+            details.setColumnCount(2)
+            details.setHeaderLabels(["项目", "当前状态"])
+            details.setRootIsDecorated(True)
+            details.setAlternatingRowColors(True)
+            details.header().setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
+            details.header().setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+            layout.addWidget(details, 1)
+            close = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+            close.rejected.connect(dialog.reject)
+            layout.addWidget(close)
+
+            def refresh_dialog() -> None:
+                try:
+                    status = self.controller.status()
+                    snapshot = status.get("progress") or {}
+                    progress.setValue(int(snapshot.get("percent", 0)))
+                    phase_labels = {
+                        "preparing": "准备完整重建", "scanning": "扫描目录",
+                        "indexing": "提取与一级索引", "embedding": "生成语义向量",
+                        "entities": "抽取实体关系", "complete": "本轮索引完成",
+                        "failed": "本轮索引失败", "idle": "空闲",
+                    }
+                    current_file = str(snapshot.get("current_file") or "")
+                    phase.setText(
+                        f"{phase_labels.get(snapshot.get('phase'), '索引状态')}"
+                        + (f"\n当前文件：{current_file}" if current_file else "")
+                    )
+
+                    def add_section(title: str, entries: list[tuple[str, object]]) -> None:
+                        root = QTreeWidgetItem([title, ""])
+                        root.setFirstColumnSpanned(True)
+                        root.setExpanded(True)
+                        for label, value in entries:
+                            root.addChild(QTreeWidgetItem([label, str(value)]))
+                        details.addTopLevelItem(root)
+
+                    details.clear()
+                    files = status.get("files") or {}
+                    by_status = files.get("by_status") or {}
+                    add_section("文件状态", [
+                        ("文件总数", files.get("total", 0)),
+                        ("已完成一级索引", by_status.get("done", 0)),
+                        ("待索引", by_status.get("pending", 0)),
+                        ("等待 LLM", by_status.get("waiting_model", 0)),
+                        ("等待本地能力", by_status.get("waiting_capability", 0)),
+                        ("失败", by_status.get("failed", 0)),
+                        ("跳过", by_status.get("skipped", 0)),
+                    ])
+                    models = status.get("models") or {}
+                    capabilities = status.get("capabilities") or {}
+                    add_section("能力状态", [
+                        ("一级 LLM 供应商", f"{models.get('llm_providers', 0)} 个启用"),
+                        ("RAG 语义检索", "已启用" if models.get("rag") else "未启用"),
+                        ("LLM 工具搜索", "已启用" if models.get("agent") else "未启用"),
+                        ("实体关系", "已启用" if models.get("entities") else "未启用"),
+                        ("Python 插件", f"{capabilities.get('plugins', 0)} 个启用"),
+                    ])
+                    folders = status.get("folders") or []
+                    add_section("索引目录", [("目录", folder) for folder in folders] or [("目录", "尚未设置")])
+                    last_run = status.get("last_run") or {}
+                    if last_run.get("error"):
+                        recent = [("状态", "失败"), ("错误", last_run["error"])]
+                    elif not last_run:
+                        recent = [("状态", "暂无运行记录")]
+                    else:
+                        scan = last_run.get("scan") or {}
+                        indexed = last_run.get("index") or {}
+                        recent = [
+                            ("模式", "完整重建" if last_run.get("full_rebuild") else "增量索引"),
+                            ("扫描到文件", scan.get("scanned", 0)),
+                            ("新增或变更", scan.get("new_or_changed", 0)),
+                            ("一级正文完成", indexed.get("indexed", 0)),
+                            ("向量化文件", indexed.get("embedded_files", 0)),
+                            ("实体抽取文件", indexed.get("entities_indexed", 0)),
+                        ]
+                        if last_run.get("embedding_error"):
+                            recent.append(("向量错误", last_run["embedding_error"]))
+                    add_section("最近一次运行", recent)
+                except Exception as exc:
+                    details.clear()
+                    details.addTopLevelItem(QTreeWidgetItem(["无法读取状态", str(exc)]))
+
+            timer = QTimer(dialog)
+            timer.timeout.connect(refresh_dialog)
+            timer.start(800)
+            refresh_dialog()
+            dialog.exec()
 
     try:
         controller = DesktopController(config_path)

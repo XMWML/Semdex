@@ -10,6 +10,7 @@ import os
 from fnmatch import fnmatch
 from pathlib import Path
 import stat
+from collections.abc import Callable
 
 from .config import Config
 from .db import Database, INVALID_PATH_ERROR_PREFIX
@@ -37,7 +38,18 @@ def _excluded(name: str, patterns: list[str]) -> bool:
     return any(fnmatch(name, p) for p in patterns)
 
 
-def scan(db: Database, config: Config, log=print) -> ScanStats:
+def scan(
+    db: Database,
+    config: Config,
+    log=print,
+    progress: Callable[..., None] | None = None,
+) -> ScanStats:
+    # Keep every caller (CLI, watcher, web and native desktop) on the same
+    # persistent invalidation contract before metadata short-circuits unchanged
+    # files below.
+    from .indexer import synchronize_index_state
+
+    synchronize_index_state(db, config, log=log)
     stats = ScanStats()
     present: set[str] = set()
     scanned_roots: list[Path] = []
@@ -75,6 +87,8 @@ def scan(db: Database, config: Config, log=print) -> ScanStats:
                 if fn.startswith(".") or _excluded(fn, config.exclude):
                     continue
                 p = Path(dirpath) / fn
+                if progress is not None:
+                    progress("scanning", current_file=str(p), scanned=stats.scanned)
                 try:
                     st = p.lstat()
                 except OSError:
@@ -137,4 +151,6 @@ def scan(db: Database, config: Config, log=print) -> ScanStats:
         stats.removed = db.remove_missing(
             present, scanned_roots, configured_roots, inaccessible_roots
         )
+    if progress is not None:
+        progress("scanning", current_file="", scanned=stats.scanned)
     return stats

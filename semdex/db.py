@@ -296,6 +296,7 @@ class Database:
         total = int(self.conn.execute("SELECT COUNT(*) AS n FROM files").fetchone()["n"])
         self.conn.execute("DELETE FROM contents_fts")
         self.conn.execute("DELETE FROM chunks")
+        self.conn.execute("DELETE FROM meta WHERE key='embedding_dim'")
         self.conn.execute("DELETE FROM contents")
         self.conn.execute("DELETE FROM file_entities")
         self._remove_orphan_entities()
@@ -304,7 +305,6 @@ class Database:
             "entity_status='pending', entity_error=NULL"
         )
         if invalidate_embeddings:
-            self.conn.execute("DELETE FROM meta WHERE key='embedding_dim'")
             self.conn.execute(
                 "INSERT INTO meta(key, value) VALUES('embedding_rebuild_required', '1') "
                 "ON CONFLICT(key) DO UPDATE SET value=excluded.value"
@@ -378,6 +378,10 @@ class Database:
         row = self.conn.execute("SELECT text FROM contents WHERE file_id=?", (file_id,)).fetchone()
         return row["text"] if row else None
 
+    def has_indexed_content(self) -> bool:
+        """Return whether the database contains any primary extracted body."""
+        return self.conn.execute("SELECT 1 FROM contents LIMIT 1").fetchone() is not None
+
     # ── entities / relations ──────────────────────────────
 
     def set_entity_status(self, file_id: int, status: str, error: str | None = None) -> None:
@@ -418,6 +422,15 @@ class Database:
                 (file_id, entity_id, entity.get("context", "")[:500]),
             )
         self._remove_orphan_entities()
+        self.conn.commit()
+
+    def clear_entities(self) -> None:
+        """Remove all entity relations and queue every source for extraction again."""
+        self.conn.execute("DELETE FROM file_entities")
+        self.conn.execute("DELETE FROM entities")
+        self.conn.execute(
+            "UPDATE files SET entity_status='pending', entity_error=NULL"
+        )
         self.conn.commit()
 
     def _remove_orphan_entities(self) -> None:
@@ -559,6 +572,12 @@ class Database:
         self.conn.execute("UPDATE chunks SET embedding=NULL WHERE embedding IS NOT NULL")
         self.conn.commit()
 
+    def clear_chunks(self) -> None:
+        """Remove all chunk text/vectors and their now-invalid dimension metadata."""
+        self.conn.execute("DELETE FROM chunks")
+        self.conn.execute("DELETE FROM meta WHERE key='embedding_dim'")
+        self.conn.commit()
+
     def require_embedding_rebuild(self) -> None:
         """Atomically hide vectors until a complete rebuild has succeeded."""
         self.conn.execute("UPDATE chunks SET embedding=NULL WHERE embedding IS NOT NULL")
@@ -571,8 +590,10 @@ class Database:
 
     def files_without_chunks(self) -> list[sqlite3.Row]:
         return self.conn.execute(
-            "SELECT f.* FROM files f WHERE f.index_status='done' AND NOT EXISTS "
-            "(SELECT 1 FROM chunks c WHERE c.file_id=f.id AND c.embedding IS NOT NULL)"
+            "SELECT f.* FROM files f JOIN contents body ON body.file_id=f.id "
+            "WHERE f.index_status='done' AND NOT EXISTS "
+            "(SELECT 1 FROM chunks c WHERE c.file_id=f.id AND c.embedding IS NOT NULL) "
+            "ORDER BY f.id"
         ).fetchall()
 
     # ── meta ──────────────────────────────────────────────

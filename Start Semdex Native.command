@@ -1,5 +1,5 @@
 #!/bin/zsh
-# Backward-compatible macOS Native UI launcher. Double-click to start.
+# Double-click on macOS to open the native Semdex UI.
 set -euo pipefail
 
 APP_ROOT="${0:A:h}"

@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# Backward-compatible Native UI launcher for a Linux/macOS terminal.
+# Start the native Semdex UI from a Linux/macOS terminal.
 set -eu
 
 APP_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)

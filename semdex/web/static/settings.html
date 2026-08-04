@@ -342,6 +342,7 @@
   }
 
   .model-card { padding: 14px; }
+  .model-card[data-model="embedding"] { grid-column: 1 / -1; }
 
   .model-head,
   .integration-head,
@@ -429,6 +430,113 @@
   .feature-row p { margin: 3px 0 0; color: var(--muted); font-size: 12px; }
   .feature-settings { margin-top: 16px; }
 
+  .extractor-list, .provider-list { display: grid; gap: 10px; }
+  .extractor-row {
+    display: grid;
+    grid-template-columns: 24px minmax(140px, .7fr) minmax(220px, 1.25fr) minmax(170px, .75fr) auto;
+    gap: 9px;
+    align-items: center;
+    padding: 11px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface);
+  }
+  .extractor-row.builtin { background: var(--surface-soft); }
+  .extractor-row .rule-id {
+    color: var(--muted);
+    font: 11px ui-monospace, SFMono-Regular, Menlo, monospace;
+    justify-self: end;
+    white-space: nowrap;
+  }
+  .extractor-row input, .extractor-row select { min-height: 34px; }
+  .extractor-row select { padding: 6px 8px; font-size: 12px; }
+  .extractor-row .icon-button { min-height: 32px; justify-self: end; }
+  .rule-details {
+    grid-column: 2 / -1;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 9px 12px;
+    padding-top: 2px;
+  }
+  .rule-details .field.full, .rule-details .rule-help { grid-column: 1 / -1; }
+  .rule-details textarea { min-height: 62px; }
+  .rule-help { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.4; }
+  .rule-help[data-tone="warn"] { color: var(--warn); }
+  .extractor-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+  .extractor-head p { margin: 0; color: var(--muted); font-size: 12px; }
+  .extractor-directory { color: var(--text); font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+  .extractor-guide {
+    margin: 0 0 14px;
+    padding: 11px 12px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface-soft);
+  }
+  .extractor-guide h3 { margin: 0 0 5px; font-size: 13px; }
+  .extractor-guide p { margin: 3px 0; color: var(--muted); font-size: 12px; }
+  .extractor-guide code { padding: 1px 4px; border-radius: 3px; background: var(--surface); color: var(--text); font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; }
+  .extractor-guide pre { margin: 7px 0 2px; overflow-x: auto; padding: 8px 9px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface); color: var(--text); font: 11px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+  .plugin-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 10px 0;
+    padding: 9px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface);
+  }
+  .plugin-inventory { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+  .plugin-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 28px;
+    padding: 4px 8px;
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    background: var(--surface);
+    color: var(--muted);
+    font-size: 11px;
+  }
+  .plugin-item strong { color: var(--text); font-size: 11px; }
+  .plugin-item.unavailable { border-color: var(--danger); color: var(--danger); }
+  .provider-card { padding: 14px; }
+  .provider-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    gap: 10px;
+    align-items: start;
+    margin-bottom: 14px;
+  }
+  .provider-name { min-height: 34px; font-size: 15px; font-weight: 650; }
+  .provider-id { margin-top: 4px; color: var(--muted); font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+  .provider-empty {
+    padding: 14px;
+    border: 1px dashed var(--border);
+    border-radius: 6px;
+    background: var(--surface-soft);
+    color: var(--muted);
+    font-size: 13px;
+  }
+  .model-library-guide {
+    padding: 11px 14px;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface-soft);
+  }
+  .model-library-guide p { margin: 3px 0; color: var(--muted); font-size: 12px; }
+  .model-library-guide code { color: var(--text); font: 11px ui-monospace, SFMono-Regular, Menlo, monospace; }
+
+  .model-description {
+    max-width: 62ch;
+    margin: 5px 0 0;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.4;
+  }
+
   .savebar {
     display: flex;
     align-items: center;
@@ -481,6 +589,18 @@
     .model-library-head { align-items: start; flex-direction: column; }
     .managed-model { grid-template-columns: 1fr; align-items: start; }
     .model-library-actions, .managed-model-actions { justify-content: flex-start; }
+    .extractor-row { grid-template-columns: 24px minmax(0, 1fr); }
+    .extractor-row .rule-id,
+    .extractor-row select[data-rule="kind"],
+    .extractor-row input[data-rule="label"],
+    .extractor-row input[data-rule="extensions"] { grid-column: 2 / -1; }
+    .extractor-row .icon-button { grid-column: 2 / -1; justify-self: end; }
+    .rule-details { grid-column: 2 / -1; grid-template-columns: 1fr; }
+    .rule-details .field.full, .rule-details .rule-help { grid-column: 1; }
+    .plugin-toolbar { align-items: stretch; flex-direction: column; }
+    .plugin-toolbar button { align-self: flex-start; }
+    .provider-head { grid-template-columns: 1fr auto; align-items: stretch; }
+    .provider-head > :first-child { grid-column: 1 / -1; }
   }
 
   @media (max-width: 470px) {
@@ -554,113 +674,119 @@
       </div>
     </section>
 
+    <section class="section" aria-labelledby="extractorTitle">
+      <div class="section-heading">
+        <h2 id="extractorTitle">扩展名一级索引方式</h2>
+        <p>语义向量和实体关系在这份正文库之上建立</p>
+      </div>
+      <div class="extractor-head">
+        <p>内置规则可以停用和改方式，但不能删除；自定义规则可以删除。</p>
+        <button type="button" id="addExtractorButton">添加扩展名规则</button>
+      </div>
+      <aside class="extractor-guide" aria-labelledby="extractorGuideTitle">
+        <h3 id="extractorGuideTitle">三种方式怎么选</h3>
+        <p><strong>直接索引文本</strong>：使用 Semdex 已有的文本、PDF、Office、压缩包和邮件解析器，速度快且不调用模型。</p>
+        <p><strong>传入 LLM</strong>：选择下方某个 LLM 供应商；“文本内容”适合可读文件，“原始图片”适合支持视觉输入的模型。可为该扩展名单独填写 Prompt。</p>
+        <p><strong>Python 外置插件</strong>：适合二进制格式或自定义解析。每个插件使用独立文件夹，入口固定为 <code>plugin.py</code>：</p>
+        <pre>&lt;插件目录&gt;/
+  my_plugin/
+    plugin.py
+
+def extract(path, ctx=None):
+    return path.read_text(encoding="utf-8")</pre>
+        <p>函数可以是 <code>extract(path)</code> 或 <code>extract(path, ctx)</code>，返回字符串、字节串或可转换为字符串的值；返回 <code>None</code> 表示没有正文。只放入可信脚本，添加后点击“重新扫描插件”。</p>
+        <p>扩展名可写 <code>.abc</code> 或 <code>abc</code>，多个用逗号分隔。同一扩展名只能出现在一条已启用规则中。</p>
+      </aside>
+      <div class="plugin-toolbar">
+        <div>
+          <div class="field-label">Python 插件目录</div>
+          <div class="extractor-directory" id="extractorDirectory">正在读取插件目录</div>
+        </div>
+        <button type="button" id="refreshPluginsButton">重新扫描插件</button>
+      </div>
+      <div class="plugin-inventory" id="pluginInventory" aria-live="polite"></div>
+      <div class="extractor-list" id="extractorList" aria-live="polite"></div>
+    </section>
+
+    <section class="section" aria-labelledby="providersTitle">
+      <div class="section-heading">
+        <h2 id="providersTitle">扩展名 LLM 供应商</h2>
+        <p>供上方 LLM 索引规则选择</p>
+      </div>
+      <div class="extractor-head">
+        <p>可以新增、改名或删除；规则通过稳定 ID 关联，名称修改不会断开关联。</p>
+        <button type="button" id="addProviderButton">添加 LLM 供应商</button>
+      </div>
+      <div class="provider-list" id="providerList" aria-live="polite"></div>
+    </section>
+
     <section class="section" aria-labelledby="modelsTitle">
       <div class="section-heading">
-        <h2 id="modelsTitle">模型</h2>
-        <p>每项能力可使用不同接口与模型</p>
+        <h2 id="modelsTitle">模型与运行时</h2>
+        <p>三项能力互相独立，可分别使用 API 或本地模型</p>
       </div>
       <section class="model-library" aria-labelledby="modelLibraryTitle">
         <header class="model-library-head">
           <div>
             <h3 id="modelLibraryTitle">项目模型库</h3>
-            <p>将 MLX 或 GGUF 模型文件放入此目录后刷新，即可按用途加载并选择。</p>
+            <p>扫描项目目录中的本地模型；Semdex 不会自动下载模型。</p>
             <div class="model-directory" id="modelDirectory">正在读取模型目录</div>
           </div>
           <div class="model-library-actions">
             <button type="button" id="refreshModelsButton">刷新模型</button>
           </div>
         </header>
+        <div class="model-library-guide">
+          <p>语义嵌入模型可从 <a href="https://huggingface.co/models?pipeline_tag=feature-extraction" target="_blank" rel="noreferrer">Hugging Face</a> 或 <a href="https://modelscope.cn/models" target="_blank" rel="noreferrer">ModelScope</a> 下载后放入上方目录。GGUF 直接放一个支持 embedding 的 <code>*.gguf</code> 文件；MLX 使用独立文件夹，保留 tokenizer 文件，并至少包含 <code>config.json</code> 与全部 <code>*.safetensors</code> 或 <code>consolidated.*</code> 权重。</p>
+          <p>MLX 文件夹名或 <code>config.json</code> 的模型信息需包含 <code>embedding</code>、<code>bge</code>、<code>e5</code>、<code>nomic</code>、<code>gte</code>、<code>jina</code> 之一，才会显示“向量”能力；文件夹相对路径就是本地模型 ID。</p>
+          <p>“刷新模型”重新扫描磁盘；“加载”可提前把所选用途放入内存；“卸载”释放对应运行时。未提前加载时，模型会在首次调用该用途时按需加载。</p>
+        </div>
         <div class="runtime-list" id="runtimeList" aria-live="polite"></div>
         <div class="model-library-list" id="modelLibraryList" aria-live="polite"></div>
       </section>
       <div class="model-grid" id="modelGrid">
-        <article class="model-card" data-model="llm" data-capability="chat">
-          <header class="model-head">
-            <div><div class="model-kind">对话</div><h3>默认 LLM</h3></div>
-            <label class="switch"><input data-field="enabled" type="checkbox"><span class="switch-track" aria-hidden="true"></span><span>启用</span></label>
-          </header>
-          <div class="model-fields">
-            <label class="field full"><span class="field-label">调用方式</span><select data-field="mode"><option value="openai">OpenAI API</option><option value="local">项目本地模型</option></select></label>
-            <label class="field full model-local"><span class="field-label">本地模型</span><select data-field="local_model"></select><small class="field-note">模型先在上方加载到内存，未加载的选择将在调用时提示。</small></label>
-            <div class="field full model-local"><div class="model-local-actions"><button type="button" data-model-action="load">加载到内存</button><button type="button" data-model-action="unload">卸载</button><span class="model-local-state" data-local-state></span></div></div>
-            <label class="field full model-api"><span class="field-label">接口地址</span><input data-field="base_url" type="url" spellcheck="false" autocomplete="off" placeholder="https://api.openai.com/v1"></label>
-            <label class="field model-api"><span class="field-label">模型</span><input data-field="model" type="text" spellcheck="false" autocomplete="off"></label>
-            <div class="field model-api"><span class="field-label">API Key</span><input data-field="api_key" type="password" autocomplete="new-password"><small class="field-note key-note"></small><label class="clear-key"><input data-field="clear_api_key" type="checkbox"><span>删除已保存密钥</span></label></div>
-          </div>
-        </article>
-
         <article class="model-card" data-model="agent" data-capability="chat">
           <header class="model-head">
-            <div><div class="model-kind">LLM</div><h3>检索 Agent</h3></div>
-            <label class="switch"><input data-field="enabled" type="checkbox"><span class="switch-track" aria-hidden="true"></span><span>启用</span></label>
+            <div><div class="model-kind">搜索决策</div><h3>检索 Agent 模型</h3><p class="model-description">用于主页“LLM 搜索”。它决定何时调用关键词、语义、实体、文本详情和图片查看工具，再根据工具结果组织答案；不参与普通文件索引。</p></div>
+            <label class="switch"><input data-field="enabled" type="checkbox" aria-label="启用检索 Agent 模型"><span class="switch-track" aria-hidden="true"></span><span>启用</span></label>
           </header>
           <div class="model-fields">
-            <label class="field full"><span class="field-label">调用方式</span><select data-field="mode"><option value="openai">OpenAI API</option><option value="local">项目本地模型</option></select></label>
-            <label class="field full model-local"><span class="field-label">本地模型</span><select data-field="local_model"></select><small class="field-note">模型先在上方加载到内存，未加载的选择将在调用时提示。</small></label>
+            <label class="field full"><span class="field-label">调用方式</span><select data-field="mode"><option value="openai">OpenAI 兼容 API</option><option value="local">项目本地模型</option></select></label>
+            <label class="field full model-local"><span class="field-label">本地模型</span><select data-field="local_model"></select><small class="field-note">需要支持对话和工具调用；可提前加载，首次使用也会按需加载。</small></label>
             <div class="field full model-local"><div class="model-local-actions"><button type="button" data-model-action="load">加载到内存</button><button type="button" data-model-action="unload">卸载</button><span class="model-local-state" data-local-state></span></div></div>
             <label class="field full model-api"><span class="field-label">接口地址</span><input data-field="base_url" type="url" spellcheck="false" autocomplete="off" placeholder="https://api.openai.com/v1"></label>
-            <label class="field model-api"><span class="field-label">模型</span><input data-field="model" type="text" spellcheck="false" autocomplete="off"></label>
-            <div class="field model-api"><span class="field-label">API Key</span><input data-field="api_key" type="password" autocomplete="new-password"><small class="field-note key-note"></small><label class="clear-key"><input data-field="clear_api_key" type="checkbox"><span>删除已保存密钥</span></label></div>
+            <label class="field model-api"><span class="field-label">模型名称</span><input data-field="model" type="text" spellcheck="false" autocomplete="off"></label>
+            <div class="field model-api"><span class="field-label">API Key</span><input data-field="api_key" type="password" autocomplete="new-password" aria-label="检索 Agent API Key"><small class="field-note key-note"></small><label class="clear-key"><input data-field="clear_api_key" type="checkbox" aria-label="删除检索 Agent 已保存密钥"><span>删除已保存密钥</span></label></div>
           </div>
         </article>
 
         <article class="model-card" data-model="entities" data-capability="chat">
           <header class="model-head">
-            <div><div class="model-kind">LLM</div><h3>实体抽取</h3></div>
-            <label class="switch"><input data-field="enabled" type="checkbox"><span class="switch-track" aria-hidden="true"></span><span>启用</span></label>
+            <div><div class="model-kind">索引增强</div><h3>实体抽取模型</h3><p class="model-description">在正文完成索引后抽取人名、机构、项目和日期，写入实体关系表，供实体筛选与关联检索使用；不会生成搜索回答。</p></div>
+            <label class="switch"><input data-field="enabled" type="checkbox" aria-label="启用实体抽取模型"><span class="switch-track" aria-hidden="true"></span><span>启用</span></label>
           </header>
           <div class="model-fields">
-            <label class="field full"><span class="field-label">调用方式</span><select data-field="mode"><option value="openai">OpenAI API</option><option value="local">项目本地模型</option></select></label>
-            <label class="field full model-local"><span class="field-label">本地模型</span><select data-field="local_model"></select><small class="field-note">模型先在上方加载到内存，未加载的选择将在调用时提示。</small></label>
+            <label class="field full"><span class="field-label">调用方式</span><select data-field="mode"><option value="openai">OpenAI 兼容 API</option><option value="local">项目本地模型</option></select></label>
+            <label class="field full model-local"><span class="field-label">本地模型</span><select data-field="local_model"></select><small class="field-note">适合选择能稳定输出结构化 JSON 的对话模型。</small></label>
             <div class="field full model-local"><div class="model-local-actions"><button type="button" data-model-action="load">加载到内存</button><button type="button" data-model-action="unload">卸载</button><span class="model-local-state" data-local-state></span></div></div>
             <label class="field full model-api"><span class="field-label">接口地址</span><input data-field="base_url" type="url" spellcheck="false" autocomplete="off" placeholder="https://api.openai.com/v1"></label>
-            <label class="field model-api"><span class="field-label">模型</span><input data-field="model" type="text" spellcheck="false" autocomplete="off"></label>
-            <div class="field model-api"><span class="field-label">API Key</span><input data-field="api_key" type="password" autocomplete="new-password"><small class="field-note key-note"></small><label class="clear-key"><input data-field="clear_api_key" type="checkbox"><span>删除已保存密钥</span></label></div>
-          </div>
-        </article>
-
-        <article class="model-card" data-model="fallback" data-capability="chat">
-          <header class="model-head">
-            <div><div class="model-kind">LLM</div><h3>提取兜底</h3></div>
-            <label class="switch"><input data-field="enabled" type="checkbox"><span class="switch-track" aria-hidden="true"></span><span>启用</span></label>
-          </header>
-          <div class="model-fields">
-            <label class="field full"><span class="field-label">调用方式</span><select data-field="mode"><option value="openai">OpenAI API</option><option value="local">项目本地模型</option></select></label>
-            <label class="field full model-local"><span class="field-label">本地模型</span><select data-field="local_model"></select><small class="field-note">模型先在上方加载到内存，未加载的选择将在调用时提示。</small></label>
-            <div class="field full model-local"><div class="model-local-actions"><button type="button" data-model-action="load">加载到内存</button><button type="button" data-model-action="unload">卸载</button><span class="model-local-state" data-local-state></span></div></div>
-            <label class="field full model-api"><span class="field-label">接口地址</span><input data-field="base_url" type="url" spellcheck="false" autocomplete="off" placeholder="https://api.openai.com/v1"></label>
-            <label class="field model-api"><span class="field-label">模型</span><input data-field="model" type="text" spellcheck="false" autocomplete="off"></label>
-            <div class="field model-api"><span class="field-label">API Key</span><input data-field="api_key" type="password" autocomplete="new-password"><small class="field-note key-note"></small><label class="clear-key"><input data-field="clear_api_key" type="checkbox"><span>删除已保存密钥</span></label></div>
-          </div>
-        </article>
-
-        <article class="model-card" data-model="vision" data-capability="vision">
-          <header class="model-head">
-            <div><div class="model-kind">视觉</div><h3>图片理解</h3></div>
-            <label class="switch"><input data-field="enabled" type="checkbox"><span class="switch-track" aria-hidden="true"></span><span>启用</span></label>
-          </header>
-          <div class="model-fields">
-            <label class="field full"><span class="field-label">调用方式</span><select data-field="mode"><option value="openai">OpenAI API</option><option value="local">项目本地模型</option></select></label>
-            <label class="field full model-local"><span class="field-label">本地模型</span><select data-field="local_model"></select><small class="field-note">模型先在上方加载到内存，未加载的选择将在调用时提示。</small></label>
-            <div class="field full model-local"><div class="model-local-actions"><button type="button" data-model-action="load">加载到内存</button><button type="button" data-model-action="unload">卸载</button><span class="model-local-state" data-local-state></span></div></div>
-            <label class="field full model-api"><span class="field-label">接口地址</span><input data-field="base_url" type="url" spellcheck="false" autocomplete="off" placeholder="https://api.openai.com/v1"></label>
-            <label class="field model-api"><span class="field-label">模型</span><input data-field="model" type="text" spellcheck="false" autocomplete="off"></label>
-            <div class="field model-api"><span class="field-label">API Key</span><input data-field="api_key" type="password" autocomplete="new-password"><small class="field-note key-note"></small><label class="clear-key"><input data-field="clear_api_key" type="checkbox"><span>删除已保存密钥</span></label></div>
+            <label class="field model-api"><span class="field-label">模型名称</span><input data-field="model" type="text" spellcheck="false" autocomplete="off"></label>
+            <div class="field model-api"><span class="field-label">API Key</span><input data-field="api_key" type="password" autocomplete="new-password" aria-label="实体抽取 API Key"><small class="field-note key-note"></small><label class="clear-key"><input data-field="clear_api_key" type="checkbox" aria-label="删除实体抽取已保存密钥"><span>删除已保存密钥</span></label></div>
           </div>
         </article>
 
         <article class="model-card" data-model="embedding" data-capability="embedding">
           <header class="model-head">
-            <div><div class="model-kind">向量</div><h3>语义嵌入</h3></div>
-            <label class="switch"><input data-field="enabled" type="checkbox"><span class="switch-track" aria-hidden="true"></span><span>启用</span></label>
+            <div><div class="model-kind">向量编码</div><h3>语义嵌入模型</h3><p class="model-description">把已提取正文分块编码为向量，供语义搜索、混合搜索和 RAG 上下文召回；它不生成文字，更换模型或服务后需要重建向量。</p></div>
+            <label class="switch"><input data-field="enabled" type="checkbox" aria-label="启用语义嵌入模型"><span class="switch-track" aria-hidden="true"></span><span>启用</span></label>
           </header>
           <div class="model-fields">
-            <label class="field full"><span class="field-label">调用方式</span><select data-field="mode"><option value="openai">OpenAI API</option><option value="local">项目本地模型</option></select></label>
-            <label class="field full model-local"><span class="field-label">本地模型</span><select data-field="local_model"></select><small class="field-note">模型先在上方加载到内存，未加载的选择将在调用时提示。</small></label>
+            <label class="field full"><span class="field-label">调用方式</span><select data-field="mode"><option value="openai">OpenAI 兼容 API</option><option value="local">项目本地模型</option></select></label>
+            <label class="field full model-local"><span class="field-label">本地嵌入模型</span><select data-field="local_model"></select><small class="field-note">只显示支持向量编码的模型；可提前加载，首次使用也会按需加载。</small></label>
             <div class="field full model-local"><div class="model-local-actions"><button type="button" data-model-action="load">加载到内存</button><button type="button" data-model-action="unload">卸载</button><span class="model-local-state" data-local-state></span></div></div>
             <label class="field full model-api"><span class="field-label">接口地址</span><input data-field="base_url" type="url" spellcheck="false" autocomplete="off" placeholder="https://api.openai.com/v1"></label>
-            <label class="field model-api"><span class="field-label">模型</span><input data-field="model" type="text" spellcheck="false" autocomplete="off"></label>
-            <div class="field model-api"><span class="field-label">API Key</span><input data-field="api_key" type="password" autocomplete="new-password"><small class="field-note key-note"></small><label class="clear-key"><input data-field="clear_api_key" type="checkbox"><span>删除已保存密钥</span></label></div>
+            <label class="field model-api"><span class="field-label">模型名称</span><input data-field="model" type="text" spellcheck="false" autocomplete="off"></label>
+            <div class="field model-api"><span class="field-label">API Key</span><input data-field="api_key" type="password" autocomplete="new-password" aria-label="语义嵌入 API Key"><small class="field-note key-note"></small><label class="clear-key"><input data-field="clear_api_key" type="checkbox" aria-label="删除语义嵌入已保存密钥"><span>删除已保存密钥</span></label></div>
           </div>
         </article>
       </div>
@@ -668,13 +794,14 @@
 
     <section class="section" aria-labelledby="localToolsTitle">
       <div class="section-heading">
-        <h2 id="localToolsTitle">OCR 与语音识别</h2>
+        <h2 id="localToolsTitle">随附插件参数</h2>
+        <p>供内置 ocr / asr Python 插件读取</p>
       </div>
       <div class="integration-grid">
         <article class="integration-card" id="ocrCard">
           <header class="integration-head">
-            <div><h3>OCR</h3></div>
-            <label class="switch"><input id="ocrEnabled" type="checkbox"><span class="switch-track" aria-hidden="true"></span><span>启用</span></label>
+            <div><div class="model-kind">ocr/plugin.py</div><h3>OCR 插件</h3><p class="model-description">当扩展名规则选择 <strong>ocr</strong> 插件时，将图片或扫描 PDF 转为可检索文字。这里仅配置该插件使用的识别后端。</p></div>
+            <label class="switch"><input id="ocrEnabled" type="checkbox" aria-label="启用 OCR 插件"><span class="switch-track" aria-hidden="true"></span><span>启用</span></label>
           </header>
           <div class="integration-fields">
             <label class="field full"><span class="field-label">提供方</span>
@@ -689,15 +816,15 @@
             <label class="field ocr-tesseract"><span class="field-label">DPI</span><input id="ocrDpi" type="number" min="72" step="1" inputmode="numeric"></label>
             <label class="field full ocr-http"><span class="field-label">接口地址</span><input id="ocrEndpoint" type="url" spellcheck="false" autocomplete="off" placeholder="http://127.0.0.1:8000"></label>
             <label class="field ocr-http"><span class="field-label">响应文本路径</span><input id="ocrResponsePath" type="text" spellcheck="false" autocomplete="off" placeholder="data.text"></label>
-            <div class="field full ocr-http"><span class="field-label">API Key</span><input id="ocrApiKey" type="password" autocomplete="new-password"><small class="field-note" id="ocrKeyNote"></small><label class="clear-key"><input id="ocrClearApiKey" type="checkbox"><span>删除已保存密钥</span></label></div>
+            <div class="field full ocr-http"><span class="field-label">API Key</span><input id="ocrApiKey" type="password" autocomplete="new-password" aria-label="OCR API Key"><small class="field-note" id="ocrKeyNote"></small><label class="clear-key"><input id="ocrClearApiKey" type="checkbox" aria-label="删除 OCR 已保存密钥"><span>删除已保存密钥</span></label></div>
             <label class="field full"><span class="field-label">超时（秒）</span><input id="ocrTimeoutSec" type="number" min="1" step="1" inputmode="numeric"></label>
           </div>
         </article>
 
         <article class="integration-card" id="asrCard">
           <header class="integration-head">
-            <div><h3>语音识别</h3></div>
-            <label class="switch"><input id="asrEnabled" type="checkbox"><span class="switch-track" aria-hidden="true"></span><span>启用</span></label>
+            <div><div class="model-kind">asr/plugin.py</div><h3>语音识别插件</h3><p class="model-description">当扩展名规则选择 <strong>asr</strong> 插件时，将音频或视频语音转成正文。这里配置本地 Whisper 或兼容转写接口。</p></div>
+            <label class="switch"><input id="asrEnabled" type="checkbox" aria-label="启用语音识别插件"><span class="switch-track" aria-hidden="true"></span><span>启用</span></label>
           </header>
           <div class="integration-fields">
             <label class="field full"><span class="field-label">提供方</span>
@@ -706,7 +833,7 @@
                 <option value="openai_compatible">OpenAI API（Whisper / 兼容服务）</option>
               </select>
             </label>
-            <label class="field full asr-local"><span class="field-label">本地 Whisper 模型</span><select id="asrLocalModel"></select><small class="field-note">将模型放入上方目录并加载到内存后在此选择。</small></label>
+            <label class="field full asr-local"><span class="field-label">本地 Whisper 模型</span><select id="asrLocalModel"></select><small class="field-note">放入上方目录并刷新后即可选择；可提前加载，首次使用也会按需加载。</small></label>
             <div class="field full asr-local"><div class="model-local-actions"><button type="button" id="asrLoadModelButton">加载到内存</button><button type="button" id="asrUnloadModelButton">卸载</button><span class="model-local-state" id="asrLocalState"></span></div></div>
             <label class="field asr-local"><span class="field-label">本地后端</span><select id="asrLocalBackend"><option value="auto">自动选择</option><option value="faster_whisper">faster-whisper</option><option value="whisper_cpp">whisper.cpp</option><option value="mlx_whisper">MLX Whisper</option></select></label>
             <label class="field asr-http"><span class="field-label">模型</span><input id="asrModel" type="text" spellcheck="false" autocomplete="off" placeholder="whisper-1"></label>
@@ -720,7 +847,7 @@
             <label class="field asr-http"><span class="field-label">转写接口</span><input id="asrEndpoint" type="url" spellcheck="false" autocomplete="off" placeholder="http://127.0.0.1:9000/v1/audio/transcriptions"></label>
             <label class="field asr-http"><span class="field-label">语言</span><input id="asrLanguage" type="text" spellcheck="false" autocomplete="off" placeholder="zh"></label>
             <label class="field asr-http"><span class="field-label">响应文本路径</span><input id="asrResponsePath" type="text" spellcheck="false" autocomplete="off" placeholder="text"></label>
-            <div class="field full asr-http"><span class="field-label">API Key</span><input id="asrApiKey" type="password" autocomplete="new-password"><small class="field-note" id="asrKeyNote"></small><label class="clear-key"><input id="asrClearApiKey" type="checkbox"><span>删除已保存密钥</span></label></div>
+            <div class="field full asr-http"><span class="field-label">API Key</span><input id="asrApiKey" type="password" autocomplete="new-password" aria-label="语音识别 API Key"><small class="field-note" id="asrKeyNote"></small><label class="clear-key"><input id="asrClearApiKey" type="checkbox" aria-label="删除语音识别已保存密钥"><span>删除已保存密钥</span></label></div>
             <label class="field full"><span class="field-label">超时（秒）</span><input id="asrTimeoutSec" type="number" min="1" step="1" inputmode="numeric"></label>
           </div>
         </article>
@@ -728,15 +855,19 @@
     </section>
 
     <section class="section" aria-labelledby="featuresTitle">
-      <div class="section-heading"><h2 id="featuresTitle">功能开关</h2></div>
+      <div class="section-heading"><h2 id="featuresTitle">功能开关</h2><p>启用能力后还需配置对应模型</p></div>
       <div class="feature-list">
         <div class="feature-row">
-          <div><h3>实体关系</h3><p>人名、项目、机构与日期</p></div>
-          <label class="switch"><input id="entitiesEnabled" type="checkbox"><span class="switch-track" aria-hidden="true"></span><span>启用</span></label>
+          <div><h3>RAG 语义检索</h3><p>使用语义嵌入模型召回相关片段，参与语义与混合搜索。</p></div>
+          <label class="switch"><input id="ragEnabled" type="checkbox" aria-label="启用 RAG 语义检索"><span class="switch-track" aria-hidden="true"></span><span>启用</span></label>
         </div>
         <div class="feature-row">
-          <div><h3>提取兜底</h3><p>可读文本的模型处理</p></div>
-          <label class="switch"><input id="fallbackEnabled" type="checkbox"><span class="switch-track" aria-hidden="true"></span><span>启用</span></label>
+          <div><h3>LLM 工具搜索</h3><p>允许检索 Agent 在主页调用数据库和文件查看工具。</p></div>
+          <label class="switch"><input id="agentEnabled" type="checkbox" aria-label="启用 LLM 工具搜索"><span class="switch-track" aria-hidden="true"></span><span>启用</span></label>
+        </div>
+        <div class="feature-row">
+          <div><h3>实体关系</h3><p>在索引后提取人名、项目、机构和日期等实体。</p></div>
+          <label class="switch"><input id="entitiesEnabled" type="checkbox" aria-label="启用实体关系"><span class="switch-track" aria-hidden="true"></span><span>启用</span></label>
         </div>
       </div>
       <div class="field-grid feature-settings">
@@ -744,7 +875,7 @@
         <label class="field"><span class="field-label">每文件最多实体</span><input id="entitiesMaxPerFile" type="number" min="1" step="1" inputmode="numeric"></label>
         <label class="field"><span class="field-label">Agent 最大步骤</span><input id="agentMaxSteps" type="number" min="1" step="1" inputmode="numeric"></label>
         <label class="field"><span class="field-label">Agent 最大结果数</span><input id="agentMaxResults" type="number" min="1" step="1" inputmode="numeric"></label>
-        <label class="field"><span class="field-label">兜底读取上限（字节）</span><input id="fallbackMaxBytes" type="number" min="1024" step="1024" inputmode="numeric"></label>
+        <label class="field"><span class="field-label">RAG 最大上下文片段数</span><input id="ragMaxContextChunks" type="number" min="1" step="1" inputmode="numeric"></label>
       </div>
     </section>
 
@@ -767,6 +898,8 @@
   const $ = selector => document.querySelector(selector);
   const form = $('#settingsForm');
   const modelCards = Array.from(document.querySelectorAll('[data-model]'));
+  const providerCards = () => Array.from(document.querySelectorAll('[data-provider-id]'));
+  const sourceCards = () => [...providerCards(), ...modelCards];
   const connectionState = $('#connectionState');
   const savebarNote = $('#savebarNote');
   const toastElement = $('#toast');
@@ -777,15 +910,21 @@
     toastTimer: null,
     modelInventory: { model_dir: '', models: [], runtimes: [] },
     modelInventoryError: '',
-    modelInventoryLoading: false
+    modelInventoryLoading: false,
+    pluginDir: '',
+    plugins: []
   };
   const MODEL_LABELS = {
-    llm: '默认 LLM', agent: '检索 Agent', entities: '实体抽取', fallback: '提取兜底',
-    vision: '图片理解', embedding: '语义嵌入'
+    agent: '检索 Agent', entities: '实体抽取', embedding: '语义嵌入'
   };
   const CAPABILITY_LABELS = {
     chat: '对话', embedding: '向量', vision: '视觉', asr: '语音识别'
   };
+  const BUILTIN_EXTRACTOR_IDS = new Set([
+    'text', 'pdf', 'docx', 'xlsx', 'pptx', 'legacy_office', 'image', 'zip', 'eml', 'mbox', 'asr'
+  ]);
+  const EXTRACTOR_KINDS = new Set(['text', 'llm', 'python']);
+  const SUPPORTED_IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.webp', '.gif', '.bmp']);
 
   const DEFAULTS = {
     db_path: 'index.db',
@@ -796,6 +935,7 @@
     watch_reconcile_sec: 86400,
     chunk_size: 800,
     chunk_overlap: 100,
+    llm_providers: [],
     models: {},
     ocr: {
       enabled: false, provider: 'tesseract', command: 'tesseract', pdf_renderer: 'pdftoppm',
@@ -806,8 +946,9 @@
       device: 'auto', compute_type: 'int8', base_url: '', endpoint: '', language: '', response_path: '', timeout_sec: 180
     },
     entities: { enabled: false, max_chars: 12000, max_per_file: 32 },
-    agent: { max_steps: 6, max_results: 12 },
-    agent_fallback: { enabled: false, max_bytes: 262144 }
+    agent: { enabled: true, max_steps: 6, max_results: 12 },
+    rag: { enabled: true, max_context_chunks: 8 },
+    extractors: { plugin_dir: '', plugins: [], rules: [] }
   };
 
   function toText(value, fallback = '') {
@@ -817,17 +958,30 @@
   function normalizeSettings(raw) {
     const source = raw && typeof raw === 'object' ? raw : {};
     const models = source.models && typeof source.models === 'object' ? source.models : {};
+    const rawExtractors = source.extractors && typeof source.extractors === 'object' ? source.extractors : {};
+    let providers = Array.isArray(source.llm_providers) ? source.llm_providers : [];
+    if (!providers.length && models.llm && typeof models.llm === 'object') {
+      providers = [{ id: 'default', name: '默认 LLM', ...models.llm }];
+    }
     return {
       ...DEFAULTS,
       ...source,
       folders: Array.isArray(source.folders) ? source.folders : [],
       exclude: Array.isArray(source.exclude) ? source.exclude : [],
+      llm_providers: providers.filter(item => item && typeof item === 'object'),
       models,
       ocr: { ...DEFAULTS.ocr, ...(source.ocr || {}) },
       asr: { ...DEFAULTS.asr, ...(source.asr || {}) },
       entities: { ...DEFAULTS.entities, ...(source.entities || {}) },
       agent: { ...DEFAULTS.agent, ...(source.agent || {}) },
-      agent_fallback: { ...DEFAULTS.agent_fallback, ...(source.agent_fallback || {}) }
+      rag: { ...DEFAULTS.rag, ...(source.rag || {}) },
+      extractors: {
+        ...DEFAULTS.extractors,
+        ...rawExtractors,
+        plugin_dir: toText(rawExtractors.plugin_dir || rawExtractors.custom_dir),
+        plugins: Array.isArray(rawExtractors.plugins) ? rawExtractors.plugins : [],
+        rules: Array.isArray(rawExtractors.rules) ? rawExtractors.rules : []
+      }
     };
   }
 
@@ -930,6 +1084,296 @@
     });
   }
 
+  function normalizeExtractorKind(value, fallback = 'python') {
+    let kind = toText(value).trim().toLowerCase();
+    if (kind === 'builtin') kind = 'text';
+    return EXTRACTOR_KINDS.has(kind) ? kind : fallback;
+  }
+
+  function normalizeExtension(value) {
+    const extension = toText(value).trim().toLowerCase();
+    if (!extension) return '';
+    return extension.startsWith('.') ? extension : `.${extension}`;
+  }
+
+  function isBuiltinExtractorRule(rule) {
+    return rule?.builtin === true || BUILTIN_EXTRACTOR_IDS.has(toText(rule?.id));
+  }
+
+  function extractorPayload() {
+    return Array.from(document.querySelectorAll('.extractor-row')).map(row => {
+      const kind = normalizeExtractorKind(row.querySelector('[data-rule="kind"]')?.value, 'text');
+      const payload = {
+        id: row.dataset.id || '',
+        label: row.querySelector('[data-rule="label"]')?.value.trim() || row.dataset.id || '',
+        kind,
+        enabled: row.querySelector('[data-rule="enabled"]')?.checked !== false,
+        builtin: row.dataset.builtin === 'true',
+        extensions: Array.from(new Set(
+          splitList(row.querySelector('[data-rule="extensions"]')?.value || '')
+            .map(normalizeExtension)
+            .filter(Boolean)
+        ))
+      };
+      if (kind === 'llm') {
+        payload.provider = row.querySelector('[data-rule="provider"]')?.value || '';
+        payload.input_mode = row.querySelector('[data-rule="input_mode"]')?.value === 'image' ? 'image' : 'text';
+        payload.prompt = row.querySelector('[data-rule="prompt"]')?.value.trim() || '';
+      }
+      if (kind === 'python') {
+        payload.plugin = row.querySelector('[data-rule="plugin"]')?.value || '';
+        payload.function = row.querySelector('[data-rule="function"]')?.value.trim() || 'extract';
+      }
+      return payload;
+    });
+  }
+
+  function currentProviderChoices() {
+    return providerCards().map(card => ({
+      id: card.dataset.providerId || '',
+      name: card.querySelector('[data-provider="name"]')?.value.trim() || card.dataset.providerId || '',
+      enabled: card.querySelector('[data-field="enabled"]')?.checked === true
+    })).filter(item => item.id);
+  }
+
+  function renderProviderSelect(select, selectedId = '') {
+    const selected = toText(selectedId || select.value).trim();
+    const providers = currentProviderChoices();
+    select.replaceChildren();
+    appendOption(select, '', providers.length ? '选择 LLM 提供方' : '请先在下方添加 LLM 提供方', !selected, true);
+    providers.forEach(provider => {
+      const status = provider.enabled ? '' : '（未启用）';
+      appendOption(select, provider.id, `${provider.name}${status}`, provider.id === selected);
+    });
+    if (selected && !providers.some(provider => provider.id === selected)) {
+      appendOption(select, selected, `${selected}（已删除或未找到）`, true);
+    }
+  }
+
+  function pluginForId(pluginId) {
+    return state.plugins.find(plugin => plugin.id === pluginId) || null;
+  }
+
+  function renderPluginSelect(select, selectedId = '') {
+    const selected = toText(selectedId || select.value).trim();
+    select.replaceChildren();
+    appendOption(select, '', state.plugins.length ? '选择 Python 插件' : '未发现 Python 插件', !selected, true);
+    state.plugins.forEach(plugin => {
+      const flags = [plugin.builtin ? '随附' : '', plugin.available === false ? '不可用' : ''].filter(Boolean).join(' / ');
+      appendOption(select, plugin.id, `${plugin.name || plugin.id}${flags ? `（${flags}）` : ''}`, plugin.id === selected);
+    });
+    if (selected && !state.plugins.some(plugin => plugin.id === selected)) {
+      appendOption(select, selected, `${selected}（当前配置，尚未发现）`, true);
+    }
+  }
+
+  function syncExtractorRow(row) {
+    const builtin = row.dataset.builtin === 'true';
+    const method = row.querySelector('[data-rule="kind"]');
+    const kind = normalizeExtractorKind(method?.value || row.dataset.kind, 'text');
+    row.dataset.kind = kind;
+    if (method) method.value = kind;
+    row.querySelectorAll('[data-kind-fields]').forEach(group => {
+      group.hidden = group.dataset.kindFields !== kind;
+    });
+
+    const label = row.querySelector('[data-rule="label"]');
+    if (label) {
+      label.readOnly = builtin;
+      label.title = builtin ? '内置规则名称不可修改' : '';
+    }
+    const inputMode = row.querySelector('[data-rule="input_mode"]');
+    const extensions = splitList(row.querySelector('[data-rule="extensions"]')?.value || '')
+      .map(normalizeExtension)
+      .filter(Boolean);
+    const imageAllowed = extensions.length > 0
+      && extensions.every(extension => SUPPORTED_IMAGE_EXTENSIONS.has(extension));
+    const imageOption = inputMode?.querySelector('option[value="image"]');
+    if (imageOption) imageOption.disabled = !imageAllowed;
+    if (inputMode?.value === 'image' && !imageAllowed) inputMode.value = 'text';
+    if (inputMode) {
+      inputMode.title = imageAllowed
+        ? '把原始图片交给支持视觉输入的 LLM'
+        : '原始图片仅支持 PNG、JPEG、WebP、GIF 和 BMP；PDF 或文档请使用文本模式或 Python 插件';
+    }
+    const help = row.querySelector(`[data-kind-fields="${kind}"] .rule-help`);
+    if (!help) return;
+    help.removeAttribute('data-tone');
+    if (kind === 'text') {
+      help.textContent = '使用 Semdex 内置正文解析器，不调用模型或自定义代码。';
+      return;
+    }
+    if (kind === 'llm') {
+      if (inputMode?.value === 'image' && !imageAllowed) {
+        help.textContent = '原始图片仅支持 PNG、JPEG、WebP、GIF 和 BMP；PDF 或文档请使用文本输入或 Python 插件。';
+        help.setAttribute('data-tone', 'warn');
+        return;
+      }
+      const providerId = row.querySelector('[data-rule="provider"]')?.value || '';
+      const provider = currentProviderChoices().find(item => item.id === providerId);
+      help.textContent = provider
+        ? `索引时调用“${provider.name}”生成可检索正文${provider.enabled ? '。' : '；该提供方目前未启用。'}`
+        : '请选择一个下方配置的 LLM 提供方。';
+      if (!provider || !provider.enabled) help.setAttribute('data-tone', 'warn');
+      return;
+    }
+    const pluginId = row.querySelector('[data-rule="plugin"]')?.value || '';
+    const plugin = pluginForId(pluginId);
+    help.textContent = plugin
+      ? `${plugin.description || `调用 ${pluginId}/plugin.py`}${plugin.available === false ? `；当前不可用：${plugin.error || '插件入口无法加载'}` : ''}`
+      : (pluginId ? `保留当前插件“${pluginId}”，但扫描目录中尚未发现。` : '请选择插件文件夹和入口函数。');
+    if (!plugin || plugin.available === false) help.setAttribute('data-tone', 'warn');
+  }
+
+  function syncRuleProviderOptions() {
+    document.querySelectorAll('[data-rule="provider"]').forEach(select => {
+      renderProviderSelect(select, select.value);
+      syncExtractorRow(select.closest('.extractor-row'));
+    });
+  }
+
+  function renderExtractors(rawRules, directory = '') {
+    const list = $('#extractorList');
+    if (!list) return;
+    state.pluginDir = toText(directory).trim();
+    list.replaceChildren();
+    $('#extractorDirectory').textContent = state.pluginDir || '插件目录尚未配置';
+    const rules = Array.isArray(rawRules) ? rawRules : [];
+    rules.forEach(rule => {
+      const builtin = isBuiltinExtractorRule(rule);
+      const kind = normalizeExtractorKind(rule.kind, 'text');
+      const row = document.createElement('div');
+      row.className = `extractor-row${builtin ? ' builtin' : ''}`;
+      row.dataset.id = toText(rule.id);
+      row.dataset.kind = kind;
+      row.dataset.builtin = String(builtin);
+
+      const enabled = document.createElement('input');
+      enabled.type = 'checkbox'; enabled.dataset.rule = 'enabled'; enabled.checked = rule.enabled !== false;
+      enabled.setAttribute('aria-label', `${toText(rule.label || rule.id)} 是否启用`);
+
+      const label = document.createElement('input');
+      label.type = 'text'; label.dataset.rule = 'label'; label.value = toText(rule.label || rule.id);
+      label.setAttribute('aria-label', '规则名称');
+
+      const extensions = document.createElement('input');
+      extensions.type = 'text'; extensions.dataset.rule = 'extensions';
+      extensions.value = Array.isArray(rule.extensions) ? rule.extensions.join(', ') : '';
+      extensions.placeholder = '.abc, .xyz';
+      extensions.title = '多个扩展名用逗号分隔';
+      extensions.setAttribute('aria-label', '扩展名');
+
+      const method = document.createElement('select');
+      method.dataset.rule = 'kind'; method.setAttribute('aria-label', '索引方式');
+      appendOption(method, 'text', '直接索引文本', kind === 'text');
+      appendOption(method, 'llm', '传入 LLM', kind === 'llm');
+      appendOption(method, 'python', 'Python 外置插件', kind === 'python');
+      row.append(enabled, label, extensions, method);
+
+      if (builtin) {
+        const lock = document.createElement('span');
+        lock.className = 'rule-id'; lock.textContent = toText(rule.id);
+        lock.title = '内置规则不可删除';
+        row.append(lock);
+      } else {
+        const remove = document.createElement('button');
+        remove.type = 'button'; remove.className = 'icon-button'; remove.textContent = '×';
+        remove.title = '删除自定义规则'; remove.setAttribute('aria-label', '删除自定义规则');
+        remove.addEventListener('click', () => { row.remove(); markDirty(); });
+        row.append(remove);
+      }
+
+      const makeField = (caption, control, full = false) => {
+        const field = document.createElement('label');
+        field.className = `field${full ? ' full' : ''}`;
+        const fieldLabel = document.createElement('span');
+        fieldLabel.className = 'field-label';
+        fieldLabel.textContent = caption;
+        field.append(fieldLabel, control);
+        return field;
+      };
+      const makeHelp = () => {
+        const help = document.createElement('p');
+        help.className = 'rule-help';
+        return help;
+      };
+
+      const textFields = document.createElement('div');
+      textFields.className = 'rule-details';
+      textFields.dataset.kindFields = 'text';
+      textFields.append(makeHelp());
+
+      const llmFields = document.createElement('div');
+      llmFields.className = 'rule-details';
+      llmFields.dataset.kindFields = 'llm';
+      const provider = document.createElement('select');
+      provider.dataset.rule = 'provider';
+      provider.setAttribute('aria-label', 'LLM 提供方');
+      const selectedProvider = toText(rule.provider || (rule.model === 'llm' ? 'default' : rule.model)).trim();
+      renderProviderSelect(provider, selectedProvider);
+      const inputMode = document.createElement('select');
+      inputMode.dataset.rule = 'input_mode';
+      inputMode.setAttribute('aria-label', 'LLM 输入形式');
+      appendOption(inputMode, 'text', '文本内容', rule.input_mode !== 'image');
+      appendOption(inputMode, 'image', '原始图片', rule.input_mode === 'image');
+      const prompt = document.createElement('textarea');
+      prompt.dataset.rule = 'prompt';
+      prompt.setAttribute('aria-label', '该规则的提示词');
+      prompt.value = toText(rule.prompt);
+      prompt.placeholder = '可选：告诉模型需要提取哪些信息';
+      llmFields.append(
+        makeField('LLM 提供方', provider),
+        makeField('输入形式', inputMode),
+        makeField('该规则的提示词', prompt, true),
+        makeHelp()
+      );
+
+      const pythonFields = document.createElement('div');
+      pythonFields.className = 'rule-details';
+      pythonFields.dataset.kindFields = 'python';
+      const plugin = document.createElement('select');
+      plugin.dataset.rule = 'plugin';
+      plugin.setAttribute('aria-label', 'Python 插件');
+      renderPluginSelect(plugin, toText(rule.plugin || rule.script).trim());
+      const fn = document.createElement('input');
+      fn.type = 'text'; fn.dataset.rule = 'function';
+      fn.value = toText(rule.function || 'extract');
+      fn.placeholder = 'extract';
+      fn.setAttribute('aria-label', 'Python 函数名');
+      pythonFields.append(makeField('插件文件夹', plugin), makeField('入口函数', fn), makeHelp());
+
+      row.append(textFields, llmFields, pythonFields);
+      list.append(row);
+      syncExtractorRow(row);
+    });
+  }
+
+  function renderPluginInventory() {
+    const list = $('#pluginInventory');
+    list.replaceChildren();
+    if (!state.plugins.length) {
+      const empty = document.createElement('span');
+      empty.className = 'plugin-item unavailable';
+      empty.textContent = '未发现插件；保存设置后会放入随附的 ocr / asr 插件';
+      list.append(empty);
+      return;
+    }
+    state.plugins.forEach(plugin => {
+      const item = document.createElement('span');
+      item.className = `plugin-item${plugin.available === false ? ' unavailable' : ''}`;
+      item.title = [plugin.path, plugin.description, plugin.error].filter(Boolean).join('\n');
+      const name = document.createElement('strong');
+      name.textContent = plugin.name || plugin.id;
+      const detail = document.createElement('span');
+      const parts = [plugin.id, plugin.function || 'extract'];
+      if (plugin.builtin) parts.push('随附');
+      if (plugin.available === false) parts.push(plugin.error || '不可用');
+      detail.textContent = parts.join(' · ');
+      item.append(name, detail);
+      list.append(item);
+    });
+  }
+
   function addFolders() {
     const input = $('#newFolder');
     const added = splitList(input.value);
@@ -947,10 +1391,164 @@
     element.textContent = configured ? '已保存，留空不修改' : '留空不保存密钥';
   }
 
+  function createSourceField(caption, control, className = '') {
+    const field = document.createElement('label');
+    field.className = `field ${className}`.trim();
+    const label = document.createElement('span');
+    label.className = 'field-label';
+    label.textContent = caption;
+    field.append(label, control);
+    return field;
+  }
+
+  function appendProviderCard(provider) {
+    const list = $('#providerList');
+    list.querySelector('.provider-empty')?.remove();
+    const card = document.createElement('article');
+    card.className = 'model-card provider-card';
+    card.dataset.providerId = toText(provider.id).trim();
+    card.dataset.capability = 'chat';
+
+    const header = document.createElement('header');
+    header.className = 'provider-head';
+    const identity = document.createElement('div');
+    const name = document.createElement('input');
+    name.type = 'text'; name.className = 'provider-name'; name.dataset.provider = 'name';
+    name.value = toText(provider.name || provider.id); name.placeholder = '提供方名称';
+    name.setAttribute('aria-label', 'LLM 提供方名称');
+    const id = document.createElement('div');
+    id.className = 'provider-id'; id.textContent = `ID: ${card.dataset.providerId}`;
+    identity.append(name, id);
+    const enabled = document.createElement('label');
+    enabled.className = 'switch';
+    const enabledInput = document.createElement('input');
+    enabledInput.type = 'checkbox'; enabledInput.dataset.field = 'enabled'; enabledInput.checked = Boolean(provider.enabled);
+    enabledInput.setAttribute('aria-label', `启用 LLM 提供方 ${card.dataset.providerId}`);
+    const track = document.createElement('span');
+    track.className = 'switch-track'; track.setAttribute('aria-hidden', 'true');
+    const enabledText = document.createElement('span'); enabledText.textContent = '启用';
+    enabled.append(enabledInput, track, enabledText);
+    const remove = document.createElement('button');
+    remove.type = 'button'; remove.className = 'icon-button'; remove.textContent = '×';
+    remove.title = '删除此 LLM 提供方'; remove.setAttribute('aria-label', '删除此 LLM 提供方');
+    remove.addEventListener('click', () => {
+      const referenced = extractorPayload().filter(rule => rule.kind === 'llm' && rule.provider === card.dataset.providerId);
+      if (referenced.length) {
+        const names = referenced.map(rule => rule.label || rule.id).join('、');
+        showToast(`请先为这些规则改选 LLM：${names}`, true);
+        const first = Array.from(document.querySelectorAll('.extractor-row [data-rule="provider"]'))
+          .find(select => select.value === card.dataset.providerId);
+        first?.focus();
+        return;
+      }
+      card.remove();
+      if (!providerCards().length) renderProviderEmpty();
+      syncRuleProviderOptions();
+      markDirty();
+    });
+    header.append(identity, enabled, remove);
+
+    const fields = document.createElement('div');
+    fields.className = 'model-fields';
+    const mode = document.createElement('select');
+    mode.dataset.field = 'mode';
+    appendOption(mode, 'openai', 'OpenAI 兼容 API', provider.mode !== 'local');
+    appendOption(mode, 'local', '项目本地模型', provider.mode === 'local');
+    const localModel = document.createElement('select');
+    localModel.dataset.field = 'local_model';
+    card.dataset.localModelId = toText(provider.local_model).trim();
+    const localField = createSourceField('本地模型', localModel, 'full model-local');
+    const localNote = document.createElement('small');
+    localNote.className = 'field-note'; localNote.textContent = '文本输入需要对话能力；图片输入还需视觉能力。可在下方按用途预加载，首次使用也会按需加载。';
+    localField.append(localNote);
+    const actionsField = document.createElement('div');
+    actionsField.className = 'field full model-local';
+    const actions = document.createElement('div'); actions.className = 'model-local-actions';
+    const capability = document.createElement('select');
+    capability.dataset.loadCapability = '';
+    capability.setAttribute('aria-label', `${card.dataset.providerId} 的本地模型加载用途`);
+    appendOption(capability, 'chat', '对话 / 文本索引', true);
+    appendOption(capability, 'vision', '视觉 / 图片索引');
+    const load = document.createElement('button'); load.type = 'button'; load.dataset.modelAction = 'load'; load.textContent = '加载到内存';
+    load.setAttribute('aria-label', `加载 ${card.dataset.providerId} 本地模型用途`);
+    const unload = document.createElement('button'); unload.type = 'button'; unload.dataset.modelAction = 'unload'; unload.textContent = '卸载';
+    unload.setAttribute('aria-label', `卸载 ${card.dataset.providerId} 本地模型用途`);
+    const localState = document.createElement('span'); localState.className = 'model-local-state'; localState.dataset.localState = '';
+    actions.append(capability, load, unload, localState); actionsField.append(actions);
+    const baseUrl = document.createElement('input');
+    baseUrl.type = 'url'; baseUrl.dataset.field = 'base_url'; baseUrl.value = toText(provider.base_url);
+    baseUrl.spellcheck = false; baseUrl.autocomplete = 'off'; baseUrl.placeholder = 'https://api.openai.com/v1';
+    const model = document.createElement('input');
+    model.type = 'text'; model.dataset.field = 'model'; model.value = toText(provider.model);
+    model.spellcheck = false; model.autocomplete = 'off';
+    const apiKey = document.createElement('input');
+    apiKey.type = 'password'; apiKey.dataset.field = 'api_key'; apiKey.autocomplete = 'new-password';
+    apiKey.setAttribute('aria-label', `LLM 提供方 ${card.dataset.providerId} API Key`);
+    const keyField = document.createElement('div'); keyField.className = 'field model-api';
+    const keyLabel = document.createElement('span'); keyLabel.className = 'field-label'; keyLabel.textContent = 'API Key';
+    const keyNote = document.createElement('small'); keyNote.className = 'field-note key-note';
+    setKeyNote(keyNote, Boolean(provider.api_key_configured));
+    const clearLabel = document.createElement('label'); clearLabel.className = 'clear-key';
+    const clear = document.createElement('input'); clear.type = 'checkbox'; clear.dataset.field = 'clear_api_key';
+    clear.setAttribute('aria-label', `删除 LLM 提供方 ${card.dataset.providerId} 已保存密钥`);
+    const clearText = document.createElement('span'); clearText.textContent = '删除已保存密钥';
+    clearLabel.append(clear, clearText); keyField.append(keyLabel, apiKey, keyNote, clearLabel);
+    fields.append(
+      createSourceField('调用方式', mode, 'full'),
+      localField,
+      actionsField,
+      createSourceField('接口地址', baseUrl, 'full model-api'),
+      createSourceField('模型名称', model, 'model-api'),
+      keyField
+    );
+    card.append(header, fields);
+    list.append(card);
+  }
+
+  function renderProviderEmpty() {
+    const empty = document.createElement('div');
+    empty.className = 'provider-empty';
+    empty.textContent = '尚未配置 LLM 提供方。需要用 LLM 处理某类扩展名时，在这里添加一个。';
+    $('#providerList').append(empty);
+  }
+
+  function renderProviders(providers) {
+    const list = $('#providerList');
+    list.replaceChildren();
+    (Array.isArray(providers) ? providers : []).forEach(appendProviderCard);
+    if (!providerCards().length) renderProviderEmpty();
+    renderLocalModelSelectors();
+    syncModelSourceFields();
+  }
+
+  function nextProviderId() {
+    const existing = new Set(providerCards().map(card => card.dataset.providerId));
+    let index = 1;
+    let candidate = 'provider-1';
+    while (existing.has(candidate)) candidate = `provider-${++index}`;
+    return candidate;
+  }
+
   function normalizeCapabilities(value) {
     if (Array.isArray(value)) return value.map(item => toText(item).trim()).filter(Boolean);
     if (typeof value === 'string') return value.split(/[\s,]+/).map(item => item.trim()).filter(Boolean);
     return [];
+  }
+
+  function normalizePlugins(value) {
+    return (Array.isArray(value) ? value : [])
+      .filter(item => item && typeof item === 'object' && toText(item.id).trim())
+      .map(item => ({
+        id: toText(item.id).trim(),
+        name: toText(item.name || item.id).trim(),
+        description: toText(item.description).trim(),
+        function: toText(item.function || 'extract').trim(),
+        builtin: Boolean(item.builtin),
+        path: toText(item.path).trim(),
+        available: item.available !== false,
+        error: toText(item.error).trim(),
+        legacy: Boolean(item.legacy)
+      }));
   }
 
   function normalizeModelInventory(data) {
@@ -1038,6 +1636,10 @@
     return toText(card.querySelector('[data-field="local_model"]').value).trim();
   }
 
+  function selectedCardCapability(card) {
+    return card.querySelector('[data-load-capability]')?.value || card.dataset.capability || 'chat';
+  }
+
   function setLocalState(element, model, capability) {
     if (!element) return;
     if (!model) {
@@ -1060,13 +1662,14 @@
   }
 
   function updateLocalModelStates() {
-    modelCards.forEach(card => {
+    sourceCards().forEach(card => {
       const model = modelForId(selectedModelId(card));
-      setLocalState(card.querySelector('[data-local-state]'), model, card.dataset.capability);
+      const capability = selectedCardCapability(card);
+      setLocalState(card.querySelector('[data-local-state]'), model, capability);
       const load = card.querySelector('[data-model-action="load"]');
       const unload = card.querySelector('[data-model-action="unload"]');
-      if (load) load.disabled = !model || !model.loadable || !supportsCapability(model, card.dataset.capability);
-      if (unload) unload.disabled = !model || !isModelLoaded(model, card.dataset.capability);
+      if (load) load.disabled = !model || !model.loadable || !supportsCapability(model, capability) || isModelLoaded(model, capability);
+      if (unload) unload.disabled = !model || !isModelLoaded(model, capability);
     });
     const asrModel = modelForId(valueOf('asrLocalModel'));
     setLocalState($('#asrLocalState'), asrModel, 'asr');
@@ -1075,8 +1678,9 @@
   }
 
   function renderLocalModelSelectors() {
-    modelCards.forEach(card => {
+    sourceCards().forEach(card => {
       const select = card.querySelector('[data-field="local_model"]');
+      if (!select) return;
       const requestedId = card.dataset.localModelId || select.value;
       renderLocalModelSelector(select, card.dataset.capability, requestedId);
       card.dataset.localModelId = select.value;
@@ -1089,7 +1693,7 @@
   }
 
   function syncModelSourceFields() {
-    modelCards.forEach(card => {
+    sourceCards().forEach(card => {
       const isLocal = card.querySelector('[data-field="mode"]').value === 'local';
       card.querySelectorAll('.model-api').forEach(field => { field.hidden = isLocal; });
       card.querySelectorAll('.model-local').forEach(field => { field.hidden = !isLocal; });
@@ -1276,6 +1880,7 @@
     setInputValue('chunkOverlap', settings.chunk_overlap);
 
     hydrateModels(settings.models);
+    renderProviders(settings.llm_providers);
 
     setChecked('ocrEnabled', settings.ocr.enabled);
     setInputValue('ocrProvider', settings.ocr.provider);
@@ -1311,8 +1916,12 @@
     setInputValue('entitiesMaxPerFile', settings.entities.max_per_file);
     setInputValue('agentMaxSteps', settings.agent.max_steps);
     setInputValue('agentMaxResults', settings.agent.max_results);
-    setChecked('fallbackEnabled', settings.agent_fallback.enabled);
-    setInputValue('fallbackMaxBytes', settings.agent_fallback.max_bytes);
+    setChecked('agentEnabled', settings.agent.enabled);
+    setChecked('ragEnabled', settings.rag.enabled);
+    setInputValue('ragMaxContextChunks', settings.rag.max_context_chunks);
+    state.plugins = normalizePlugins(settings.extractors.plugins);
+    renderPluginInventory();
+    renderExtractors(settings.extractors.rules, settings.extractors.plugin_dir);
     renderModelLibrary();
     syncProviderFields();
     state.hydrating = false;
@@ -1324,14 +1933,22 @@
       enabled: card.querySelector('[data-field="enabled"]').checked,
       mode,
       base_url: card.querySelector('[data-field="base_url"]').value.trim(),
-      model: card.querySelector('[data-field="model"]').value.trim()
+      model: card.querySelector('[data-field="model"]').value.trim(),
+      local_model: selectedModelId(card)
     };
-    if (mode === 'local') output.local_model = selectedModelId(card);
     const clearApiKey = card.querySelector('[data-field="clear_api_key"]').checked;
     const apiKey = card.querySelector('[data-field="api_key"]').value.trim();
     if (clearApiKey) output.clear_api_key = true;
     else if (apiKey) output.api_key = apiKey;
     return output;
+  }
+
+  function providerPayload() {
+    return providerCards().map(card => ({
+      id: card.dataset.providerId || '',
+      name: card.querySelector('[data-provider="name"]')?.value.trim() || '',
+      ...modelPayload(card)
+    }));
   }
 
   function buildPayload() {
@@ -1380,6 +1997,7 @@
       watch_reconcile_sec: numberValue('reconcileSec', DEFAULTS.watch_reconcile_sec, 0),
       chunk_size: numberValue('chunkSize', DEFAULTS.chunk_size, 1),
       chunk_overlap: numberValue('chunkOverlap', DEFAULTS.chunk_overlap, 0),
+      llm_providers: providerPayload(),
       models,
       ocr,
       asr,
@@ -1389,12 +2007,17 @@
         max_per_file: numberValue('entitiesMaxPerFile', DEFAULTS.entities.max_per_file, 1)
       },
       agent: {
+        enabled: $('#agentEnabled').checked,
         max_steps: numberValue('agentMaxSteps', DEFAULTS.agent.max_steps, 1),
         max_results: numberValue('agentMaxResults', DEFAULTS.agent.max_results, 1)
       },
-      agent_fallback: {
-        enabled: $('#fallbackEnabled').checked,
-        max_bytes: numberValue('fallbackMaxBytes', DEFAULTS.agent_fallback.max_bytes, 1024)
+      rag: {
+        enabled: $('#ragEnabled').checked,
+        max_context_chunks: numberValue('ragMaxContextChunks', DEFAULTS.rag.max_context_chunks, 1)
+      },
+      extractors: {
+        plugin_dir: state.pluginDir,
+        rules: extractorPayload()
       }
     };
   }
@@ -1403,6 +2026,17 @@
     if (!payload.db_path) return '请填写索引数据库路径';
     if (!payload.folders.length) return '请至少添加一个索引目录';
     if (payload.chunk_overlap >= payload.chunk_size) return '向量分块重叠必须小于分块大小';
+
+    const providerIds = new Set();
+    for (const provider of payload.llm_providers) {
+      if (!provider.id || !/^[A-Za-z0-9_-]+$/.test(provider.id)) return 'LLM 提供方 ID 只能包含字母、数字、下划线或连字符';
+      if (providerIds.has(provider.id)) return `LLM 提供方 ID 重复：${provider.id}`;
+      providerIds.add(provider.id);
+      if (!provider.name) return `请填写 LLM 提供方 ${provider.id} 的名称`;
+      if (!provider.enabled) continue;
+      if (provider.mode === 'local' && !provider.local_model) return `请选择“${provider.name}”的本地模型`;
+      if (provider.mode !== 'local' && (!provider.base_url || !provider.model)) return `请补全“${provider.name}”的接口地址和模型名称`;
+    }
     for (const [key, model] of Object.entries(payload.models)) {
       if (!model.enabled) continue;
       if (model.mode === 'local' && !model.local_model) return `请选择${MODEL_LABELS[key] || key}的本地模型`;
@@ -1412,6 +2046,28 @@
     if (payload.ocr.enabled && payload.ocr.provider === 'local_http' && !payload.ocr.endpoint) return '请填写 OCR 接口地址';
     if (payload.asr.enabled && payload.asr.provider === 'openai_compatible' && !payload.asr.base_url && !payload.asr.endpoint) return '请填写语音识别 API 地址';
     if (payload.asr.enabled && payload.asr.provider === 'local' && !payload.asr.local_model) return '请选择本地 Whisper 模型';
+    const ruleIds = new Set();
+    const enabledExtensions = new Map();
+    for (const rule of payload.extractors.rules) {
+      if (!rule.id || !/^[A-Za-z0-9_-]+$/.test(rule.id) || ruleIds.has(rule.id)) return '索引规则 ID 不能为空、重复或包含无效字符';
+      ruleIds.add(rule.id);
+      if (!rule.label) return `请填写规则 ${rule.id} 的名称`;
+      if (!rule.builtin && !rule.extensions.length) return `请为“${rule.label || rule.id}”填写扩展名`;
+      if (!EXTRACTOR_KINDS.has(rule.kind)) return `请选择${rule.label || rule.id}的索引方式`;
+      if (rule.kind === 'llm' && !providerIds.has(rule.provider)) return `请为“${rule.label || rule.id}”选择仍然存在的 LLM 提供方`;
+      if (rule.kind === 'llm' && !['text', 'image'].includes(rule.input_mode)) return `请选择“${rule.label || rule.id}”的 LLM 输入形式`;
+      if (rule.kind === 'llm' && rule.input_mode === 'image') {
+        const unsupported = rule.extensions.find(extension => !SUPPORTED_IMAGE_EXTENSIONS.has(extension));
+        if (unsupported) return `“${rule.label || rule.id}”的原始图片输入不支持 ${unsupported}；请使用文本输入或 Python 插件`;
+      }
+      if (rule.kind === 'python' && (!rule.plugin || !rule.function)) return `请补全“${rule.label || rule.id}”的 Python 插件和函数名`;
+      if (!rule.enabled) continue;
+      for (const extension of rule.extensions) {
+        if (extension === '.' || /\s/.test(extension)) return `“${rule.label || rule.id}”包含无效扩展名`;
+        if (enabledExtensions.has(extension)) return `扩展名 ${extension} 同时出现在“${enabledExtensions.get(extension)}”和“${rule.label || rule.id}”中`;
+        enabledExtensions.set(extension, rule.label || rule.id);
+      }
+    }
     return '';
   }
 
@@ -1452,7 +2108,7 @@
       else {
         $('#ocrApiKey').value = '';
         $('#asrApiKey').value = '';
-        modelCards.forEach(card => { card.querySelector('[data-field="api_key"]').value = ''; });
+        sourceCards().forEach(card => { card.querySelector('[data-field="api_key"]').value = ''; });
       }
       markClean();
 
@@ -1491,14 +2147,44 @@
     }
   }
 
+  async function refreshPlugins() {
+    const button = $('#refreshPluginsButton');
+    const rules = extractorPayload();
+    button.disabled = true;
+    try {
+      const response = await fetch('/api/settings', { cache: 'no-store' });
+      const data = await responseData(response);
+      if (!response.ok || data.ok === false || !data.settings) throw new Error(errorMessage(data, '无法扫描插件'));
+      const settings = normalizeSettings(data.settings);
+      state.plugins = normalizePlugins(settings.extractors.plugins);
+      state.pluginDir = settings.extractors.plugin_dir || state.pluginDir;
+      renderPluginInventory();
+      renderExtractors(rules, state.pluginDir);
+      showToast('插件清单已刷新');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : '无法扫描插件', true);
+    } finally {
+      button.disabled = false;
+    }
+  }
+
   form.addEventListener('input', event => {
+    if (event.target.matches('[data-provider="name"]')) syncRuleProviderOptions();
+    if (event.target.matches('[data-rule="extensions"]')) syncExtractorRow(event.target.closest('.extractor-row'));
     if (event.target !== $('#newFolder')) markDirty();
   });
   form.addEventListener('change', event => {
+    if (event.target.matches('[data-load-capability]')) {
+      updateLocalModelStates();
+      return;
+    }
     if (event.target === $('#ocrProvider') || event.target === $('#asrProvider')) syncProviderFields();
     if (event.target.matches('[data-field="mode"]')) syncModelSourceFields();
+    if (event.target.matches('[data-rule="kind"]')) syncExtractorRow(event.target.closest('.extractor-row'));
+    if (event.target.matches('[data-rule="provider"], [data-rule="plugin"], [data-rule="input_mode"]')) syncExtractorRow(event.target.closest('.extractor-row'));
+    if (event.target.matches('[data-provider-id] [data-field="enabled"]')) syncRuleProviderOptions();
     if (event.target.matches('[data-field="local_model"]')) {
-      event.target.closest('[data-model]').dataset.localModelId = event.target.value;
+      event.target.closest('[data-model], [data-provider-id]').dataset.localModelId = event.target.value;
       updateLocalModelStates();
     }
     if (event.target === $('#asrLocalModel')) {
@@ -1510,11 +2196,30 @@
   form.addEventListener('click', event => {
     const button = event.target.closest('button[data-model-action]');
     if (!button) return;
-    const card = button.closest('[data-model]');
+    const card = button.closest('[data-model], [data-provider-id]');
     if (!card) return;
-    manageModel(selectedModelId(card), card.dataset.capability, button.dataset.modelAction, button);
+    manageModel(selectedModelId(card), selectedCardCapability(card), button.dataset.modelAction, button);
   });
   $('#addFolder').addEventListener('click', addFolders);
+  $('#addExtractorButton').addEventListener('click', () => {
+    const rules = extractorPayload();
+    rules.push({ id: `custom-${Date.now()}`, label: '新扩展名规则', kind: 'text', enabled: true, extensions: [] });
+    renderExtractors(rules, state.pluginDir);
+    markDirty();
+  });
+  $('#addProviderButton').addEventListener('click', () => {
+    const provider = {
+      id: nextProviderId(), name: '新 LLM 提供方', enabled: false, mode: 'openai',
+      base_url: 'http://localhost:1234/v1', model: '', local_model: '', api_key_configured: false
+    };
+    appendProviderCard(provider);
+    renderLocalModelSelectors();
+    syncModelSourceFields();
+    syncRuleProviderOptions();
+    providerCards().at(-1)?.querySelector('[data-provider="name"]')?.select();
+    markDirty();
+  });
+  $('#refreshPluginsButton').addEventListener('click', refreshPlugins);
   $('#refreshModelsButton').addEventListener('click', () => loadModelInventory());
   $('#asrLoadModelButton').addEventListener('click', () => manageModel(valueOf('asrLocalModel'), 'asr', 'load', $('#asrLoadModelButton')));
   $('#asrUnloadModelButton').addEventListener('click', () => manageModel(valueOf('asrLocalModel'), 'asr', 'unload', $('#asrUnloadModelButton')));

@@ -294,6 +294,7 @@ def test_hybrid_search_falls_back_when_embedding_server_is_unavailable(tmp_path:
     file_id = int(db.get_file_by_path(str(path.resolve()))["id"])
     db.replace_chunks(file_id, [("广州地铁三号线", array("f", [1.0, 0.0]).tobytes())])
     db.meta_set("embedding_model_id", "http://localhost:1234/v1\nmock")
+    db.meta_set("embedding_index_identity", indexer.embedding_index_identity(cfg))
 
     def unavailable(self, texts):
         raise ModelUnavailable("embedding server unavailable")

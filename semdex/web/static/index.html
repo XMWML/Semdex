@@ -32,6 +32,14 @@
     display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
     margin: 14px 0 22px; font-size: 13px; color: var(--muted);
   }
+  .status-link { color: var(--accent); font-size: 13px; text-decoration: none; }
+  .status-link:hover { text-decoration: underline; }
+  .progress-card { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; margin: -8px 0 18px; }
+  .progress-card[hidden] { display: none; }
+  .progress-head { display: flex; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 12px; }
+  .progress-head b { color: var(--text); font-weight: 600; }
+  progress { width: 100%; height: 8px; margin-top: 8px; accent-color: var(--accent); }
+  .progress-file { margin-top: 6px; color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
   .chip {
     background: var(--card); border: 1px solid var(--border);
     border-radius: 999px; padding: 3px 10px;
@@ -98,9 +106,15 @@
   <header>
     <h1>Semdex</h1>
     <span class="sub">本地文件语义索引</span>
+    <a class="status-link" href="/status">状态</a>
     <a class="settings-link" href="/settings">设置</a>
   </header>
   <div class="statusbar" id="statusbar">加载状态…</div>
+  <div class="progress-card" id="progressCard" hidden>
+    <div class="progress-head"><span id="progressPhase">索引状态</span><b id="progressPercent">0%</b></div>
+    <progress id="indexProgress" max="100" value="0"></progress>
+    <div class="progress-file" id="progressFile"></div>
+  </div>
 
   <div class="searchbox">
     <input id="q" type="search" placeholder="搜索文件名或内容，回车或停顿即搜…" autofocus autocomplete="off">
@@ -162,8 +176,19 @@ async function refreshStatus() {
     if (st.failed) parts.push(`<span class="chip err">失败 <b>${st.failed}</b></span>`);
     const semanticState = s.embedding_rebuild_required ? '需重建' : (m.embedding ? '开' : '关');
     parts.push(`<span class="chip${s.embedding_rebuild_required ? ' warn' : ''}">语义搜索 <b>${semanticState}</b></span>`);
-    parts.push(`<span class="chip">图片识别 <b>${m.vision ? '开' : '关'}</b></span>`);
+    parts.push(`<span class="chip">一级 LLM <b>${m.llm_providers || 0}</b></span>`);
+    parts.push(`<span class="chip">Python 插件 <b>${s.capabilities?.plugins || 0}</b></span>`);
     if (s.files.entities) parts.push(`<span class="chip">实体 <b>${s.files.entities}</b></span>`);
+    parts.push(`<a class="status-link" href="/status">详细状态</a>`);
+    const progress = s.progress || {};
+    const progressCard = $('#progressCard');
+    const progressActive = Boolean(s.indexing || progress.phase === 'complete' || progress.phase === 'failed');
+    progressCard.hidden = !progressActive;
+    const phaseLabels = {preparing: '准备完整重建', scanning: '扫描目录', indexing: '提取与索引', embedding: '生成向量', entities: '抽取实体', complete: '本轮索引完成', failed: '本轮索引失败'};
+    $('#progressPhase').textContent = phaseLabels[progress.phase] || '索引状态';
+    $('#progressPercent').textContent = `${Number(progress.percent || 0)}%`;
+    $('#indexProgress').value = Number(progress.percent || 0);
+    $('#progressFile').textContent = progress.current_file ? `当前文件：${progress.current_file}` : '';
     if (s.indexing) {
       parts.push(`<span class="chip"><span class="spin"></span> 索引中…</span>`);
       setTimeout(refreshStatus, 2000);

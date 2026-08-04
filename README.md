@@ -29,22 +29,22 @@ Semdex（**Sem**antic in**dex**）是一个本地文件语义索引系统：监�
 - ✅ **多文件夹增量索引**：sha256 内容判重两级加速（size+mtime 未变直接跳过），文件改动/删除/新增自动同步，反复运行只处理变化部分
 - ✅ **分层内容提取**，按文件类型路由，全部可扩展：
   - 文本/代码/Markdown/CSV 等 40+ 扩展名直接读取（utf-8 / gb18030 自动识别）
-  - PDF 文本层提取；扫描 PDF 可回退到已配置的 OCR（本机 Tesseract 或本地 HTTP 服务）
+  - PDF、Office、邮件和压缩包使用确定性解析器生成一级正文
   - docx / xlsx / pptx 解析（含表格、按工作表/页组织）
-  - 图片先走确定性 OCR，再按需补充本地视觉模型描述
+  - 图片默认交给 `ocr/plugin.py`，音视频默认交给 `asr/plugin.py`；两者和用户插件使用同一运行时
   - 邮件（`.eml` / `.mbox`）、ZIP/CBZ 压缩包递归（最多 3 层，受成员数和解压总量限制）、legacy Office（通过本机 LibreOffice 转换）
-  - 音频/视频通过项目内 Whisper 模型、可选的 faster-whisper 或 OpenAI API 转写；未知但可读为文本的格式可走受限 LLM 兜底
-  - **自定义脚本提取器**：配置一条规则，任意格式 `脚本 <安全快照文件>` → stdout 即索引文本
+  - **每扩展名三种一级索引方式**：直接索引文本、传入指定 LLM（文本/图片输入与独立 Prompt）、Python 外置插件
+  - **文件夹式插件**：`extractors/<插件名>/plugin.py` 提供 `extract(path)` 或 `extract(path, ctx)`，返回值即一级索引正文
 - ✅ **三种检索模式**：
   - 关键词（FTS5 BM25，中文按字切分方案，两字词精确命中）
   - 语义（本地 embedding + 余弦相似度）
   - 混合（RRF 融合，默认模式）
-- ✅ **按用途配置模型**：默认 LLM、检索 Agent、实体抽取、未知文本兜底、视觉理解和 embedding 可分别选择 OpenAI API 或本地 GGUF/MLX 模型；模型没启动时优雅降级（图片进 `waiting_model` 队列等待补索引，语义搜索退化为关键词）
-- ✅ **自然语言 Agent 搜索**：本地 LLM 只能调用受限的全文、语义、元数据、实体和文件详情工具；不支持原生工具调用的服务会退化为结构化检索计划
+- ✅ **模型配置分层**：一级索引可增删、重命名多个 LLM 供应商（本地或云端）；检索 Agent、实体抽取和语义嵌入各自独立配置
+- ✅ **自然语言 Agent 搜索**：检索 LLM 只能调用受限的全文、语义、元数据和文件详情工具；启用实体功能后才提供实体检索，还可用 `inspect_image` 查看此前检索命中的图片；不支持原生工具调用的服务会退化为结构化检索计划
 - ✅ **实体与关系**：可选 LLM 为已索引文件抽取人名、项目、机构、日期、地点、标签，支持按实体反查文件
 - ✅ **实时文件监听**：`semdex watch` 通过 macOS FSEvents / Linux inotify 触发防抖增量索引；默认每日全量对账并重试失败项，可配置或关闭
 - ✅ **CLI**（`--json` 结构化输出 + 稳定退出码，方便外部程序/脚本接入）
-- ✅ **跨平台原生 UI 与 WebUI**：macOS / Linux 都可选择原生 UI 或 WebUI；两套界面共用搜索、索引、模型管理、OCR、ASR 与设置
+- ✅ **跨平台原生 UI 与 WebUI**：macOS / Linux 都可选择原生 UI 或 WebUI；两套界面同步提供一级索引规则、供应商、二级模型、插件参数和内存模型管理
 - ✅ **REST API**：Web 界面用的接口全部开放，可被其他程序直接调用
 
 ## 当前边界
@@ -52,7 +52,8 @@ Semdex（**Sem**antic in**dex**）是一个本地文件语义索引系统：监�
 - OCR 可使用本机 Tesseract，也可对接满足 multipart/JSON 协议的本地 HTTP 服务（例如用 PaddleOCR 包一层本地接口）；扫描 PDF 仍需 Poppler 的 `pdftoppm`。
 - ASR 可选择项目内的 faster-whisper / MLX Whisper / whisper.cpp 模型，也可选择 OpenAI API 的 `/audio/transcriptions`。运行时按需安装 `asr`、`gguf` 或 `mlx` extra；未安装或服务不在线时文件会进入 `waiting_capability`，恢复后重跑即可。
 - GGUF 运行时适用于 macOS/Linux；MLX 运行时仅适用于 Apple Silicon macOS。基础安装不会自动安装这些可选运行时。
-- legacy Office 需要本机 LibreOffice；未知二进制格式不会执行任意命令，建议配置专用脚本提取器。
+- legacy Office 需要本机 LibreOffice；未知二进制格式不会执行任意命令，需为其添加 Python 插件或支持该输入的 LLM 规则。
+- 一级索引的“原始图片”输入和 Agent 的 `inspect_image` 仅接受 `.png`、`.jpg`、`.jpeg`、`.webp`、`.gif`、`.bmp`；PDF、文档或其他格式应使用文本输入或 Python 插件。
 - 当前向量检索使用 NumPy 暴力余弦，适合万级 chunk；更大规模可再接入 sqlite-vec，不影响现有索引格式。自部署 embedding 服务需提供 OpenAI 兼容的 `/embeddings` 接口；当前没有 OCR 那样的任意 multipart HTTP 向量适配器。
 
 ---
@@ -62,7 +63,7 @@ Semdex（**Sem**antic in**dex**）是一个本地文件语义索引系统：监�
 ```bash
 git clone https://github.com/XMWML/Semdex.git
 cd Semdex
-python3 "Start Semdex.py" --ui web  # 安装基础依赖并打开 WebUI
+./"Start Semdex Web.sh"  # 安装基础依赖并打开 WebUI
 # 在“设置”中添加目录后，点“保存并开始索引”
 ```
 
@@ -75,23 +76,20 @@ uv run semdex ask "上个月和张三有关的 PDF 在哪"  # 自然语言问答
 uv run semdex watch          # 实时监听并增量索引
 ```
 
-### 原生 UI
+### 启动界面
 
-macOS 上直接双击项目根目录的 `Start Semdex.command`，或运行：
+macOS 直接双击项目根目录的专用启动文件：`Start Semdex Native.command` 打开原生 UI，`Start Semdex Web.command` 打开 WebUI。
 
-```bash
-./Start Semdex.command --ui native
-```
-
-Linux 上运行：
+Linux 或 macOS 终端运行对应的 `.sh` 文件：
 
 ```bash
-./Start Semdex.sh --ui native
+./"Start Semdex Native.sh"
+./"Start Semdex Web.sh"
 ```
 
-两套界面共用同一份配置和 SQLite 索引，设置项与模型管理保持同步。也可以在任一平台使用 `python3 "Start Semdex.py" --ui web` 启动 WebUI。
+两套界面共用同一份配置和 SQLite 索引，设置项与模型管理保持同步。旧的 `Start Semdex.command` 和 `Start Semdex.sh` 仍可使用，默认打开原生 UI。
 
-也可以先执行 `uv run semdex init`，手工编辑配置文件的 `[watch] folders` 后再运行上述命令。网页右上角的“设置”支持添加一个或多个索引目录，按需开启模型、OCR、ASR 和实体/兜底功能。完整操作和本地服务协议见《[使用说明.md](使用说明.md)》。
+也可以先执行 `uv run semdex init`，手工编辑配置文件的 `[watch] folders` 后再运行上述命令。网页右上角的“设置”支持添加一个或多个索引目录，按需开启一级索引供应商、OCR、ASR、RAG、实体和检索 Agent。完整操作和本地服务协议见《[使用说明.md](使用说明.md)》。
 
 安全提示：`semdex serve` 只允许绑定 `127.0.0.1`、`::1` 或 `localhost`，不会对局域网或公网开放。设置接口可以修改模型服务地址和索引范围，因此当前版本不提供无认证的远程监听。
 
@@ -103,8 +101,9 @@ Linux 上运行：
 
 ```bash
 uv run semdex index    # waiting_model / waiting_capability 的文件自动补索引
-uv run semdex embed    # 给已索引文件补向量（首次启用 embedding 后跑一次）
-# 换 embedding 模型时：uv run semdex embed --rebuild
+uv run semdex embed    # 可选：单独给已索引文件补向量
+# 普通 index 会自动处理首次启用、模型变化和分块参数变化
+uv run semdex embed --rebuild  # 可选：主动强制全量重建向量
 uv run semdex entities # 给已有正文补抽实体（启用 [entities] 后）
 ```
 
@@ -144,7 +143,9 @@ hf download mlx-community/<仓库> \
     tokenizer.json
 ```
 
-GGUF 文件可用于文本对话和 embedding；文件名含 `whisper` 的 GGUF 可选 whisper.cpp 后端。普通 GGUF 当前不会被识别为视觉模型；本地图片理解使用 MLX VLM（Apple Silicon macOS），Linux 请使用图片输入兼容的 OpenAI API。MLX 文本/embedding/视觉目录和 MLX Whisper 目录需要 macOS Apple Silicon，并安装 `mlx` extra。faster-whisper 目录使用 CTranslate2 文件布局（至少 `config.json` 和 `model.bin`），macOS/Linux 均可使用。
+GGUF 文件可用于文本对话和 embedding（模型本身必须支持向量输出）；文件名含 `whisper` 的 GGUF 可选 whisper.cpp 后端。需要图片输入的一级 LLM 可选择 MLX VLM（Apple Silicon macOS）或支持图片消息的 OpenAI 兼容接口。MLX 文本/embedding/VLM 目录和 MLX Whisper 目录需要 macOS Apple Silicon，并安装 `mlx` extra。faster-whisper 目录使用 CTranslate2 文件布局（至少 `config.json` 和 `model.bin`），macOS/Linux 均可使用。
+
+语义嵌入模型可从 [Hugging Face](https://huggingface.co/models?pipeline_tag=feature-extraction) 或 [ModelScope](https://modelscope.cn/models) 下载。MLX 向量目录必须包含 `config.json` 和至少一个 `.safetensors`（或 `consolidated.*`）权重文件；目录名或 `config.json` 的模型信息还应包含 `embedding`、`bge`、`e5`、`nomic`、`gte`、`jina` 之一，Semdex 才会把它列为向量模型。模型 ID 是相对模型目录的路径。
 
 安装运行时：
 
@@ -156,7 +157,7 @@ python3 "Start Semdex.py" --ui native --with-mlx --with-gguf
 ./Start Semdex.sh --ui native --with-gguf --with-asr
 ```
 
-在设置页的每张模型卡片中选择“项目本地模型”，再选择模型用途对应的文件/目录。点击“加载到内存”可提前加载，点击“卸载”释放该用途的运行时；首次调用时也会自动加载。六个模型用途和 Whisper 的选择彼此独立，可以同时使用不同本地模型或 API。
+在设置页的 LLM 供应商或三个独立模型卡片中选择“本地模型”，再选择用途对应的文件/目录。模型管理区可按能力提前“加载到内存”，也可卸载单项能力或全部释放；首次调用时仍会按需自动加载。一级 LLM、检索 Agent、实体抽取、语义嵌入和随附 ASR 插件可以各用不同本地模型或 API。
 
 ---
 
@@ -173,13 +174,13 @@ python3 "Start Semdex.py" --ui native --with-mlx --with-gguf
                         └──────────────┬──────────────┘
                                        │
    scanner.py ──► indexer.py ──►  SQLite (db.py)
-   增量扫描        提取→FTS→分块     files / contents /
-   sha256 判重     →向量化          contents_fts / chunks / meta
+   增量扫描        提取→一级正文/FTS  files / contents /
+   sha256 判重     →可选向量/实体     contents_fts / chunks / meta
                       │
               ┌───────▼────────┐         ┌──────────────────┐
               │  extractors/    │────────►│  modelclient.py   │
-              │  脚本规则 > 内置  │         │ OpenAI API / 本地运行时 │
-              │  扩展名路由      │         │  llm/vision/embed │
+              │ text / llm / python │      │ OpenAI API / 本地运行时 │
+              │  扩展名一级路由   │         │ providers / embed │
               └────────────────┘         │  (GGUF / MLX)     │
                                          └──────────────────┘
 ```
@@ -188,7 +189,7 @@ python3 "Start Semdex.py" --ui native --with-mlx --with-gguf
 |---|---|
 | `config.py` | TOML 配置（项目内 `.semdex/config.toml`，`-c` / `SEMDEX_CONFIG` 可覆盖） |
 | `scanner.py` | 遍历监控文件夹，排除规则/大小上限，两级变化判定，清理消失文件 |
-| `extractors/` | 内容提取路由：自定义脚本规则优先，其次内置扩展名映射 |
+| `extractors/` | 一级正文路由：每条扩展名规则明确选择 text、LLM 供应商或文件夹式 Python 插件；旧版脚本仅兼容读取 |
 | `modelclient.py` / `localmodels.py` | 按用途选择 OpenAI API 或本地 GGUF/MLX，并管理发现、加载、卸载 |
 | `indexer.py` / `entities.py` | 提取 → 写 contents+FTS → 向量化 → 可选实体关系抽取 |
 | `chunker.py` | 段落/句边界优先的滑窗分块 |
@@ -217,23 +218,40 @@ python3 "Start Semdex.py" --ui native --with-mlx --with-gguf
 
 **混合检索——RRF 融合。** 关键词（BM25）对精确词强、对模糊表达弱；语义向量相反。默认 hybrid 模式两路各取候选，按 Reciprocal Rank Fusion（`Σ 1/(60+rank)`）融合排序，只依赖名次不依赖两路分数可比性。
 
-**向量存储。** 分块（800 字符、100 重叠、段落/句号边界优先）后调本地 embedding 模型，float32 BLOB 存 SQLite，查询时 numpy 矩阵余弦。万级 chunk 毫秒级，规模上去换 sqlite-vec 只动 `db.py`。embedding 的模型名和服务地址都会记录在 meta 表；任一项变更会立即清除旧向量并暂停语义检索，混合检索自动退化为关键词。执行 `semdex embed --rebuild` 完整重建成功后才恢复语义检索，绝不会混用新旧向量。
+**向量存储。** 分块（800 字符、100 重叠、段落/句号边界优先）后调 embedding 模型，float32 BLOB 存 SQLite，查询时 numpy 矩阵余弦。万级 chunk 毫秒级，规模上去换 sqlite-vec 只动 `db.py`。模型身份、服务地址、分块大小和重叠量会共同形成持久化指纹；任一项变化会清除旧向量，并在下一次普通 `index` 中自动全量重建。重建未完成时语义检索暂停、混合检索退回关键词，绝不会混用新旧向量；`embed --rebuild` 仅用于主动强制重建。
+
+**索引分层。** 文件必须先完成一级正文提取并写入 `contents` 与 FTS，之后才会基于这份正文分块生成向量、抽取实体并建立文件关系。Embedding 和实体模型不会绕过一级正文直接读取原文件；一级规则、供应商或插件变化导致正文重建时，两类派生索引也会按各自状态同步补建。
 
 **增量索引。** 两级判重：size+mtime 都没变直接跳过（不读文件）；变了才算 sha256，哈希相同只更新元数据不重跑提取——**改一下 mtime 不会烧一遍模型**。删除/移动的文件记录（含 FTS、向量）自动清理。
 
-**优雅降级状态机。** 用于内容提取的视觉或兜底模型发生 `ModelNotConfigured`（没开）/ `ModelUnavailable`（开了连不上）时，文件会进 `waiting_model` 而非 failed，模型就绪后重跑 `index` 自动补齐；实体抽取有独立的等待状态。embedding 中途失败不影响已写入的全文索引，`semdex embed` 随时补。
+**优雅降级状态机。** 一级索引规则选择的 LLM 发生 `ModelNotConfigured`（没开）/ `ModelUnavailable`（开了连不上）时，文件会进 `waiting_model` 而非 failed；OCR/ASR 插件缺少本地能力时进入 `waiting_capability`。模型或能力就绪后重跑 `index` 自动补齐。embedding 中途失败不影响已经写入的一级正文，`semdex embed` 随时补。
 
-**扩展一个文件类型有三条路，成本递增：**
-1. 配置一条脚本规则（不用改代码）：
+**扩展名索引方式。** 设置页会列出所有内置扩展名路由（文本、PDF、Office、图片、压缩包、邮件、音视频等）。内置项可关闭、调整扩展名或切换方式，但不能删除；自定义项可增删。三种方式是：`text` 直接使用确定性解析器生成一级正文；`llm` 选择一个可增删的供应商、文本/图片输入方式和该规则专属 Prompt；`python` 调用一个外置插件。图片输入只允许 `.png`、`.jpg`、`.jpeg`、`.webp`、`.gif`、`.bmp`，界面与配置保存都会拒绝把其他扩展名设为图片输入。规则、插件目录或供应商连接/模型变化后，旧一级正文会重新进入 `pending`。
+
+Python 规则使用一个独立文件夹，入口固定为 `plugin.py`：
+   ```text
+   extractors/
+     notebook/
+       plugin.py
+   ```
+`plugin.py` 提供 `extract(path)` 或 `extract(path, ctx)`，返回字符串、字节串或其他可转成字符串的值：
    ```toml
    [[extractors.rules]]
-   match = "*.eml"
-   script = "/Users/me/bin/extract_eml.sh"   # 收到同名同扩展名的安全快照路径，stdout 输出文本
+   id = "notebook"
+   label = "Notebook"
+   kind = "python"
+   enabled = true
+   extensions = [".ipynb"]
+   plugin = "notebook"
+   function = "extract"
    ```
-2. 写一个 `Extractor` 子类（`name` + `exts` + `extract()`），加进 `extractors/__init__.py` 的 `_BUILTIN` 列表；
-3. 对可读文本启用 `[agent_fallback]`：只把当前文件的限长文本交给本地 LLM 摘要；二进制格式仍需专用提取器或脚本。
+LLM 规则通过稳定 `provider` ID 引用 `[llm_providers]` 中的任意供应商。文本模式先执行对应的确定性解析器或 OCR/ASR 插件，再交给 LLM；图片模式把受限格式的原始图片交给支持多模态输入的供应商。旧版单个 `.py` 文件和 `match + script` 可执行规则继续兼容，但新设置只写文件夹插件格式。
 
-脚本提取器不会直接拿到监控目录中的原始路径。为避免文件在提取时被替换为符号链接，Semdex 会先通过受限文件描述符复制一份同名同扩展名的临时快照，再把该快照路径作为唯一参数传给脚本。依赖相邻文件或原始目录结构的脚本需要改为把所需内容一起写入文件，或实现专用提取器。
+Python 函数与旧版脚本都不会直接拿到监控目录中的原始路径。为避免文件在提取时被替换为符号链接，Semdex 会先通过受限文件描述符复制一份同名同扩展名的临时快照，再把该快照路径作为唯一参数传给提取器。
+
+主页显示当前索引阶段与文件进度；“状态”菜单提供扫描、提取、向量化、实体抽取、失败/等待计数及最近运行结果的独立面板。
+
+**RAG 与 LLM 搜索。** `[rag] enabled` 控制向量语义检索，使用 `[models.embedding]` 的模型；混合检索在 RAG 或向量服务不可用时退回关键词。`[agent] enabled` 控制 LLM 工具搜索，模型在 `[models.agent]` 自定义，可调用全文/语义检索、元数据筛选和受限文件详情。实体功能关闭时，Agent 不会收到实体检索工具；开启后才会提供。`inspect_image` 复用同一个 Agent 模型的视觉能力，只接受本轮对话中先由检索或筛选工具返回的图片 `file_id`，并再次确认文件已完成索引、位于配置的索引根目录内、路径中没有符号链接、格式在上述白名单中且文件头与扩展名匹配；它不能按任意路径读取文件。
 
 ---
 
@@ -289,7 +307,7 @@ Semdex/
     models/              本地 GGUF/MLX/Whisper 模型（不提交）
 ```
 
-`Start Semdex.command`（macOS）、`Start Semdex.sh`（Linux）和 `Start Semdex.py` 都会在调用 `uv sync` 前设置 uv、Hugging Face、Python 包缓存和临时目录到项目内。运行 `semdex gui` 或 `semdex serve` 时，未显式覆盖的默认配置也使用同一目录。项目根目录、`.semdex/`、`.venv/`、`.uv-cache/` 和 `.uv-python/` 已在默认索引排除规则中，避免索引自身的数据。
+`Start Semdex Native.command`、`Start Semdex Web.command`、对应的 `.sh` 文件和 `Start Semdex.py` 都会在调用 `uv sync` 前设置 uv、Hugging Face、Python 包缓存和临时目录到项目内。运行 `semdex gui` 或 `semdex serve` 时，未显式覆盖的默认配置也使用同一目录。项目根目录、`.semdex/`、`.venv/`、`.uv-cache/` 和 `.uv-python/` 已在默认索引排除规则中，避免索引自身的数据。
 
 如果移动整个项目，`.venv` 里记录的解释器路径可能需要重新同步：
 

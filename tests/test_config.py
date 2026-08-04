@@ -12,6 +12,7 @@ from semdex.chunker import chunk_text
 from semdex import cli
 from semdex.config import load_config, write_default_config
 from semdex.db import Database
+from semdex.settings import save_settings, settings_dict
 
 
 def test_invalid_chunk_overlap_is_rejected_when_loading_config(tmp_path: Path):
@@ -85,3 +86,54 @@ def test_serve_rejects_a_non_loopback_host(tmp_path: Path):
 
     assert result == 1
     assert not config_path.exists()
+
+
+def test_stable_builtin_extension_rule_can_switch_to_llm_and_cannot_be_deleted(tmp_path: Path):
+    config_path = tmp_path / "config.toml"
+    write_default_config(config_path)
+    current = load_config(config_path)
+
+    saved = save_settings(current, {
+        "extractors": {
+            "rules": [{
+                "id": "pdf",
+                "kind": "llm",
+                "enabled": True,
+                "extensions": [".pdf"],
+                "model": "fallback",
+            }],
+        },
+    })
+    pdf = next(rule for rule in saved.extractor_rules if rule.id == "pdf")
+    assert (pdf.label, pdf.kind, pdf.model) == ("PDF 文档", "llm", "fallback")
+    settings_pdf = next(
+        rule for rule in settings_dict(saved)["extractors"]["rules"] if rule["id"] == "pdf"
+    )
+    assert settings_pdf["builtin"] is True
+    assert 'kind = "llm"' in config_path.read_text(encoding="utf-8")
+    assert 'model = "fallback"' in config_path.read_text(encoding="utf-8")
+
+    # Omitting a stable built-in ID from a later payload retains the configured
+    # route instead of treating it as a deletable custom rule.
+    preserved = save_settings(saved, {"extractors": {"rules": []}})
+    assert next(rule for rule in preserved.extractor_rules if rule.id == "pdf").kind == "llm"
+
+
+def test_llm_extension_rule_rejects_unknown_model_purpose(tmp_path: Path):
+    config_path = tmp_path / "config.toml"
+    write_default_config(config_path)
+    current = load_config(config_path)
+
+    with pytest.raises(ValueError, match="model"):
+        save_settings(current, {
+            "extractors": {
+                "rules": [{
+                    "id": "notes",
+                    "label": "笔记",
+                    "kind": "llm",
+                    "enabled": True,
+                    "extensions": [".note"],
+                    "model": "not-a-model",
+                }],
+            },
+        })

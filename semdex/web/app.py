@@ -28,9 +28,10 @@ from pydantic import BaseModel
 
 from ..config import Config
 from ..db import Database
+from ..indexer import synchronize_index_state
 from ..models import ModelNotConfigured, ModelUnavailable
-from ..modelclient import embedding_identity
 from ..localmodels import get_local_model_manager
+from ..progress import IndexProgress
 from ..search import search as do_search
 from ..agent import ask as do_ask
 from ..settings import save_settings, settings_dict
@@ -55,7 +56,7 @@ class LocalModelReq(BaseModel):
 
 def create_app(config: Config) -> FastAPI:
     app = FastAPI(title="Semdex", docs_url=None, redoc_url=None)
-    state = {"indexing": False, "last_run": None}
+    state = {"indexing": False, "last_run": None, "progress": IndexProgress()}
     state_lock = threading.RLock()
     config_lock = threading.RLock()
 
@@ -66,35 +67,6 @@ def create_app(config: Config) -> FastAPI:
     def open_db(active_config: Config | None = None) -> Database:
         return Database((active_config or current_config()).db_path)
 
-    def invalidate_changed_embeddings(before: Config, after: Config) -> bool:
-        """Drop vectors immediately when settings switch their vector space."""
-        if before.db_path != after.db_path:
-            return False
-        db = open_db(before)
-        try:
-            has_vectors = bool(db.chunks_with_embeddings())
-            stored_identity = db.meta_get("embedding_model_id")
-            if has_vectors and stored_identity != embedding_identity(after.embedding):
-                db.require_embedding_rebuild()
-                return True
-            return False
-        finally:
-            db.close()
-
-    def requeue_files_when_fallback_is_enabled(before: Config, after: Config) -> int:
-        """Let newly enabled text fallback revisit otherwise unchanged files."""
-        if (
-            before.db_path != after.db_path
-            or before.agent_fallback.enabled
-            or not after.agent_fallback.enabled
-        ):
-            return 0
-        db = open_db(after)
-        try:
-            return db.requeue_files_without_extractor()
-        finally:
-            db.close()
-
     @app.get("/")
     def home():
         return FileResponse(STATIC_DIR / "index.html")
@@ -102,6 +74,10 @@ def create_app(config: Config) -> FastAPI:
     @app.get("/settings")
     def settings_page():
         return FileResponse(STATIC_DIR / "settings.html")
+
+    @app.get("/status")
+    def status_page():
+        return FileResponse(STATIC_DIR / "status.html")
 
     @app.get("/api/search")
     def api_search(q: str = "", mode: str = "hybrid", limit: int = 20):
@@ -139,22 +115,33 @@ def create_app(config: Config) -> FastAPI:
         with state_lock:
             indexing = state["indexing"]
             last_run = state["last_run"]
+            progress = state["progress"].snapshot()
         return {
             "ok": True,
             "files": counts,
             "indexing": indexing,
+            "progress": progress,
             "last_run": last_run,
             "folders": [str(p) for p in active_config.folders],
             "models": {
-                "llm": active_config.agent_model.enabled,
-                "vision": active_config.vision.enabled,
+                "llm": any(provider.enabled for provider in active_config.llm_providers or []),
+                "llm_providers": sum(
+                    1 for provider in active_config.llm_providers or [] if provider.enabled
+                ),
                 "embedding": active_config.embedding.enabled,
+                "rag": active_config.rag.enabled and active_config.embedding.enabled,
+                "agent": active_config.agent.enabled and active_config.agent_model.enabled,
+                "entities": active_config.entities.enabled and active_config.entities_model.enabled,
             },
             "embedding_rebuild_required": embedding_rebuild_required,
             "capabilities": {
                 "ocr": active_config.ocr.enabled,
                 "asr": active_config.asr.enabled,
                 "entities": active_config.entities.enabled,
+                "plugins": sum(
+                    1 for rule in active_config.extractor_rules
+                    if rule.enabled and rule.kind == "python"
+                ),
             },
         }
 
@@ -207,8 +194,11 @@ def create_app(config: Config) -> FastAPI:
                 try:
                     previous_config = config
                     config = save_settings(previous_config, req.settings)
-                    invalidate_changed_embeddings(previous_config, config)
-                    requeue_files_when_fallback_is_enabled(previous_config, config)
+                    db = open_db(config)
+                    try:
+                        synchronize_index_state(db, config, log=lambda *_: None)
+                    finally:
+                        db.close()
                 except (OSError, ValueError) as e:
                     raise HTTPException(422, str(e)) from e
                 return {"ok": True, "settings": settings_dict(config)}
@@ -220,6 +210,7 @@ def create_app(config: Config) -> FastAPI:
             with config_lock:
                 active_config = config
             state["indexing"] = True
+            state["progress"].begin(full_rebuild=full_rebuild)
 
         def run():
             from ..indexer import embed_missing, index_pending
@@ -232,24 +223,35 @@ def create_app(config: Config) -> FastAPI:
                     requeued = db.requeue_all_for_full_reindex(
                         invalidate_embeddings=active_config.embedding.enabled
                     )
-                scan_stats = scan(db, active_config, log=lambda *_: None)
-                index_stats = index_pending(db, active_config, log=lambda *_: None)
+                scan_stats = scan(db, active_config, log=lambda *_: None, progress=state["progress"].update)
+                index_stats = index_pending(db, active_config, log=lambda *_: None, progress=state["progress"].update)
                 result = {
                     "full_rebuild": full_rebuild,
                     "requeued": requeued,
                     "scan": scan_stats.to_dict(),
                     "index": index_stats.to_dict(),
                 }
-                if full_rebuild and active_config.embedding.enabled:
-                    try:
-                        result["embedded_files"] = embed_missing(
-                            db, active_config, log=lambda *_: None, rebuild=True
-                        )
-                    except (ModelNotConfigured, ModelUnavailable, ValueError, RuntimeError) as e:
-                        # Full-text rebuilding remains useful even when the
-                        # optional vector service is offline.  The rebuild
-                        # marker stays set, so semantic search remains safe.
-                        result["embedding_error"] = str(e)
+                if (
+                    full_rebuild
+                    and active_config.embedding.enabled
+                    and db.meta_get("embedding_rebuild_required") == "1"
+                ):
+                    if index_stats.embed_errors:
+                        result["embedding_error"] = index_stats.embed_errors[-1]
+                    else:
+                        try:
+                            result["embedded_files"] = embed_missing(
+                                db,
+                                active_config,
+                                log=lambda *_: None,
+                                rebuild=True,
+                                progress=state["progress"].update,
+                            )
+                        except (ModelNotConfigured, ModelUnavailable, ValueError, RuntimeError) as e:
+                            # Full-text rebuilding remains useful even when the
+                            # optional vector service is offline.  The rebuild
+                            # marker stays set, so semantic search remains safe.
+                            result["embedding_error"] = str(e)
             except Exception as e:
                 result = {"error": str(e)}
             finally:
@@ -258,6 +260,7 @@ def create_app(config: Config) -> FastAPI:
                 with state_lock:
                     state["indexing"] = False
                     state["last_run"] = result
+                    state["progress"].finish(failed="error" in result)
 
         threading.Thread(target=run, daemon=True).start()
         return {"ok": True, "started": True, "full_rebuild": full_rebuild}

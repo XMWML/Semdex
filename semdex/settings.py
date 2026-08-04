@@ -18,22 +18,26 @@ from .config import (
     AgentCfg,
     AgentFallbackCfg,
     AsrCfg,
+    BUILTIN_EXTRACTOR_RULES,
     Config,
+    DEFAULT_LLM_PROVIDER_ID,
     EntityCfg,
+    ExtractorRule,
+    LEGACY_LLM_PROVIDER_IDS,
+    LlmProvider,
     ModelCfg,
     OcrCfg,
+    RagCfg,
     ScriptRule,
     load_config,
 )
 from .db import Database
+from .extractors.script import discover_python_plugins, seed_shipped_plugins
 
 
 MODEL_FIELDS: dict[str, str] = {
-    "llm": "llm",
     "agent": "agent_model",
     "entities": "entities_model",
-    "fallback": "fallback_model",
-    "vision": "vision",
     "embedding": "embedding",
 }
 
@@ -52,11 +56,28 @@ def _model_to_dict(cfg: ModelCfg) -> dict[str, Any]:
 
 def settings_dict(config: Config) -> dict[str, Any]:
     """Build the stable JSON contract consumed by ``settings.html``."""
+    # Settings can also be served from an in-memory Config in desktop/API
+    # integrations, so perform the same non-overwriting plugin migration here.
+    seed_shipped_plugins(config.extractor_dir)
     models: dict[str, dict[str, Any]] = {}
     for name, attr in MODEL_FIELDS.items():
         model = getattr(config, attr)
         # Config.__post_init__ supplies purpose models for programmatic users.
         models[name] = _model_to_dict(model if model is not None else config.llm)
+    if config.llm_providers:
+        # Read-only compatibility alias for API clients predating the provider
+        # list. New frontends must use ``llm_providers`` so rename/delete works.
+        models["llm"] = _model_to_dict(config.llm_providers[0].model_config())
+    builtin_ids = {rule.id for rule in BUILTIN_EXTRACTOR_RULES}
+    plugins = []
+    for plugin in discover_python_plugins(config.extractor_dir):
+        item = plugin.as_dict()
+        # ``id`` is the stable folder/file reference used by rules. ``folder``
+        # remains a harmless compatibility alias for early native UI builds.
+        item.setdefault("id", item.get("folder", ""))
+        item.setdefault("path", str(config.extractor_dir / str(item["id"])))
+        item.setdefault("builtin", str(item["id"]) in {"ocr", "asr"})
+        plugins.append(item)
 
     return {
         "db_path": str(config.db_path),
@@ -70,6 +91,19 @@ def settings_dict(config: Config) -> dict[str, Any]:
         "chunk_size": config.chunk_size,
         "chunk_overlap": config.chunk_overlap,
         "models": models,
+        "llm_providers": [
+            {
+                "id": provider.id,
+                "name": provider.name,
+                "enabled": provider.enabled,
+                "mode": provider.mode,
+                "base_url": provider.base_url,
+                "model": provider.model,
+                "local_model": provider.local_model,
+                "api_key_configured": bool(provider.api_key),
+            }
+            for provider in config.llm_providers or []
+        ],
         "ocr": {
             "enabled": config.ocr.enabled,
             "provider": config.ocr.provider,
@@ -103,17 +137,36 @@ def settings_dict(config: Config) -> dict[str, Any]:
             "max_per_file": config.entities.max_per_file,
         },
         "agent": {
+            "enabled": config.agent.enabled,
             "max_steps": config.agent.max_steps,
             "max_results": config.agent.max_results,
         },
-        "agent_fallback": {
-            "enabled": config.agent_fallback.enabled,
-            "max_bytes": config.agent_fallback.max_bytes,
+        "rag": {
+            "enabled": config.rag.enabled,
+            "max_context_chunks": config.rag.max_context_chunks,
         },
         "extractors": {
+            "plugin_dir": str(config.extractor_dir),
+            "custom_dir": str(config.extractor_dir),
+            "plugins": plugins,
             "rules": [
-                {"match": rule.match, "script": rule.script}
-                for rule in config.script_rules
+                {
+                    "id": rule.id,
+                    "label": rule.label,
+                    "extensions": list(rule.extensions),
+                    "kind": rule.kind,
+                    "enabled": rule.enabled,
+                    "provider": rule.provider,
+                    "input_mode": rule.input_mode,
+                    "prompt": rule.prompt,
+                    "plugin": rule.plugin,
+                    "function": rule.function,
+                    # Stable built-in identity is independent of its selected
+                    # route: a PDF row can use LLM/Python but remains locked
+                    # against deletion and relabeling.
+                    "builtin": rule.id in builtin_ids,
+                }
+                for rule in config.extractor_rules
             ]
         },
         "config_path": str(config.config_path) if config.config_path else None,
@@ -233,6 +286,160 @@ def _string_list(value: object, label: str) -> list[str]:
     return result
 
 
+def _extension_list(value: object, label: str) -> list[str]:
+    if not isinstance(value, list):
+        raise ValueError(f"{label} 必须是扩展名列表")
+    extensions: list[str] = []
+    for raw in value:
+        extension = _string(raw, label, allow_empty=False).lower()
+        if not extension.startswith("."):
+            extension = f".{extension}"
+        if extension == "." or any(character.isspace() for character in extension):
+            raise ValueError(f"{label} 包含无效扩展名: {raw}")
+        if extension not in extensions:
+            extensions.append(extension)
+    return extensions
+
+
+def _plugin_reference(value: object, label: str) -> str:
+    reference = _string(value, label, allow_empty=False)
+    path = Path(reference)
+    valid_folder = path.name == reference and "." not in reference
+    valid_legacy = path.name == reference and path.suffix.lower() == ".py"
+    if not (valid_folder or valid_legacy):
+        raise ValueError(f"{label} 必须是插件文件夹名，或旧版单个 .py 文件名")
+    return reference
+
+
+def _extractor_rules_from_payload(
+    current: Config,
+    value: object,
+    provider_ids: set[str],
+) -> list[ExtractorRule]:
+    data = _mapping(value, "extractors")
+    raw_rules = data.get("rules")
+    if raw_rules is None:
+        return list(current.extractor_rules)
+    if not isinstance(raw_rules, list):
+        raise ValueError("extractors.rules 必须是列表")
+
+    supplied: dict[str, dict[str, Any]] = {}
+    for raw in raw_rules:
+        if not isinstance(raw, dict):
+            raise ValueError("extractors.rules 的每一项必须是对象")
+        rule_id = _string(raw.get("id", ""), "extractors.rules.id", allow_empty=False)
+        if rule_id in supplied:
+            raise ValueError(f"提取器规则 ID 重复: {rule_id}")
+        supplied[rule_id] = raw
+
+    current_by_id = {rule.id: rule for rule in current.extractor_rules}
+    builtins: list[ExtractorRule] = []
+    builtin_ids = {rule.id for rule in BUILTIN_EXTRACTOR_RULES}
+    for default in BUILTIN_EXTRACTOR_RULES:
+        previous = current_by_id.get(default.id, default)
+        raw = supplied.pop(default.id, None)
+        if raw is None:
+            builtins.append(previous)
+            continue
+        kind = _string(
+            raw.get("kind", previous.kind), f"提取器 {default.label}.kind", allow_empty=False,
+        ).lower()
+        if kind == "builtin":
+            kind = "text"
+        if kind not in {"text", "python", "llm"}:
+            raise ValueError(f"内置提取器 {default.label} 的索引方式必须是 text、llm 或 python")
+        rule = ExtractorRule(
+            id=default.id,
+            label=default.label,
+            extensions=_extension_list(raw.get("extensions", previous.extensions), f"提取器 {default.label}.extensions"),
+            kind=kind,
+            enabled=_bool(raw.get("enabled", previous.enabled), f"提取器 {default.label}.enabled"),
+        )
+        if kind == "python":
+            previous_plugin = previous.plugin or previous.script
+            rule.plugin = _plugin_reference(
+                raw.get("plugin", raw.get("script", previous_plugin)),
+                f"提取器 {default.label}.plugin",
+            )
+            function = _string(raw.get("function", previous.function), f"提取器 {default.label}.function", allow_empty=False)
+            if not function.isidentifier():
+                raise ValueError(f"提取器 {default.label}.function 必须是 Python 函数名")
+            rule.function = function
+        elif kind == "llm":
+            previous_provider = previous.provider if previous.kind == "llm" else DEFAULT_LLM_PROVIDER_ID
+            provider = _string(
+                raw.get("provider", raw.get("model", previous_provider)),
+                f"提取器 {default.label}.provider",
+                allow_empty=False,
+            )
+            if "provider" not in raw:
+                provider = LEGACY_LLM_PROVIDER_IDS.get(provider, provider)
+            if provider not in provider_ids:
+                raise ValueError(f"提取器 {default.label} 引用了不存在的 LLM 供应商: {provider}")
+            input_mode = _string(
+                raw.get("input_mode", previous.input_mode if previous.kind == "llm" else "text"),
+                f"提取器 {default.label}.input_mode",
+                allow_empty=False,
+            ).lower()
+            if input_mode not in {"text", "image"}:
+                raise ValueError(f"提取器 {default.label}.input_mode 必须是 text 或 image")
+            rule.provider = provider
+            rule.input_mode = input_mode
+            rule.prompt = _string(
+                raw.get("prompt", previous.prompt if previous.kind == "llm" else ""),
+                f"提取器 {default.label}.prompt",
+            )
+        builtins.append(rule)
+
+    custom: list[ExtractorRule] = []
+    for rule_id, raw in supplied.items():
+        if rule_id in builtin_ids:
+            continue
+        if not all(character.isalnum() or character in {"_", "-"} for character in rule_id):
+            raise ValueError(f"自定义提取器 ID 无效: {rule_id}")
+        kind = _string(raw.get("kind", "text"), f"提取器 {rule_id}.kind", allow_empty=False).lower()
+        if kind == "builtin":
+            kind = "text"
+        if kind not in {"text", "python", "llm"}:
+            raise ValueError(f"自定义提取器 {rule_id} 的索引方式必须是 text、llm 或 python")
+        extensions = _extension_list(raw.get("extensions", []), f"提取器 {rule_id}.extensions")
+        if not extensions:
+            raise ValueError(f"自定义提取器 {rule_id} 至少需要一个扩展名")
+        rule = ExtractorRule(
+            id=rule_id,
+            label=_string(raw.get("label", rule_id), f"提取器 {rule_id}.label", allow_empty=False),
+            extensions=extensions,
+            kind=kind,
+            enabled=_bool(raw.get("enabled", True), f"提取器 {rule_id}.enabled"),
+        )
+        if kind == "python":
+            rule.plugin = _plugin_reference(
+                raw.get("plugin", raw.get("script", "")), f"提取器 {rule_id}.plugin",
+            )
+            function = _string(raw.get("function", "extract"), f"提取器 {rule_id}.function", allow_empty=False)
+            if not function.isidentifier():
+                raise ValueError(f"提取器 {rule_id}.function 必须是 Python 函数名")
+            rule.function = function
+        elif kind == "llm":
+            provider = _string(
+                raw.get("provider", raw.get("model", DEFAULT_LLM_PROVIDER_ID)),
+                f"提取器 {rule_id}.provider",
+                allow_empty=False,
+            )
+            if "provider" not in raw:
+                provider = LEGACY_LLM_PROVIDER_IDS.get(provider, provider)
+            if provider not in provider_ids:
+                raise ValueError(f"提取器 {rule_id} 引用了不存在的 LLM 供应商: {provider}")
+            input_mode = _string(raw.get("input_mode", "text"), f"提取器 {rule_id}.input_mode", allow_empty=False).lower()
+            if input_mode not in {"text", "image"}:
+                raise ValueError(f"提取器 {rule_id}.input_mode 必须是 text 或 image")
+            rule.provider = provider
+            rule.input_mode = input_mode
+            rule.prompt = _string(raw.get("prompt", ""), f"提取器 {rule_id}.prompt")
+        custom.append(rule)
+    return builtins + custom
+
+
 def _model_from_payload(current: ModelCfg, value: object, label: str) -> ModelCfg:
     data = _mapping(value, label)
     enabled = _bool(_setting(data, "enabled", current.enabled), f"{label}.enabled")
@@ -275,6 +482,133 @@ def _model_from_payload(current: ModelCfg, value: object, label: str) -> ModelCf
     )
 
 
+def _provider_from_payload(
+    current: LlmProvider | None,
+    value: object,
+    position: int,
+) -> LlmProvider:
+    label = f"llm_providers[{position}]"
+    data = _mapping(value, label)
+    provider_id = _string(data.get("id", ""), f"{label}.id", allow_empty=False)
+    if not all(char.isalnum() or char in {"_", "-"} for char in provider_id):
+        raise ValueError(f"{label}.id 只能包含字母、数字、下划线或连字符")
+    if current is not None and current.id != provider_id:
+        raise ValueError(f"{label}.id 是稳定引用，不能修改")
+    base = current or LlmProvider(id=provider_id, name=provider_id, api_key="")
+    model = _model_from_payload(base.model_config(), data, label)
+    return LlmProvider(
+        id=provider_id,
+        name=_string(data.get("name", base.name), f"{label}.name", allow_empty=False),
+        enabled=model.enabled,
+        mode=model.mode,
+        base_url=model.base_url,
+        api_key=model.api_key,
+        model=model.model,
+        local_model=model.local_model,
+    )
+
+
+def _llm_providers_from_payload(
+    current: Config,
+    value: object,
+    legacy_value: object = None,
+) -> list[LlmProvider]:
+    current_by_id = {provider.id: provider for provider in current.llm_providers or []}
+    if value is None:
+        result = [
+            LlmProvider(
+                id=provider.id,
+                name=provider.name,
+                enabled=provider.enabled,
+                mode=provider.mode,
+                base_url=provider.base_url,
+                api_key=provider.api_key,
+                model=provider.model,
+                local_model=provider.local_model,
+            )
+            for provider in current.llm_providers or []
+        ]
+        # Compatibility for clients that still submit ``models.llm``. It
+        # updates the default/first provider without reviving vision/fallback.
+        if legacy_value is not None:
+            if result:
+                target = result[0]
+            else:
+                target = LlmProvider(id=DEFAULT_LLM_PROVIDER_ID, name="默认 LLM", api_key="")
+                result.append(target)
+            updated = _model_from_payload(target.model_config(), legacy_value, "models.llm")
+            result[0] = LlmProvider(
+                id=target.id,
+                name=target.name,
+                enabled=updated.enabled,
+                mode=updated.mode,
+                base_url=updated.base_url,
+                api_key=updated.api_key,
+                model=updated.model,
+                local_model=updated.local_model,
+            )
+        return result
+    if not isinstance(value, list):
+        raise ValueError("llm_providers 必须是列表")
+    result: list[LlmProvider] = []
+    seen: set[str] = set()
+    for position, raw in enumerate(value):
+        raw_mapping = _mapping(raw, f"llm_providers[{position}]")
+        provider_id = _string(
+            raw_mapping.get("id", ""), f"llm_providers[{position}].id", allow_empty=False,
+        )
+        if provider_id in seen:
+            raise ValueError(f"LLM 供应商 ID 重复: {provider_id}")
+        result.append(_provider_from_payload(current_by_id.get(provider_id), raw_mapping, position))
+        seen.add(provider_id)
+    return result
+
+
+def _ensure_legacy_rule_providers(
+    current: Config,
+    providers: list[LlmProvider],
+    extractors: dict[str, Any],
+) -> None:
+    """Support the short-lived rule ``model=purpose`` settings contract."""
+    raw_rules = extractors.get("rules", [])
+    if not isinstance(raw_rules, list):
+        return
+    existing = {provider.id for provider in providers}
+    model_configs = {
+        "llm": current.llm,
+        "fallback": current.fallback_model or current.llm,
+        "agent": current.agent_model or current.llm,
+        "entities": current.entities_model or current.llm,
+    }
+    names = {
+        "llm": "默认 LLM",
+        "fallback": "旧版提取兜底",
+        "agent": "旧版检索 Agent",
+        "entities": "旧版实体抽取",
+    }
+    for raw in raw_rules:
+        if not isinstance(raw, dict) or raw.get("kind") != "llm" or "provider" in raw:
+            continue
+        legacy_name = str(raw.get("model", "llm")).strip().lower()
+        if legacy_name not in model_configs:
+            continue
+        provider_id = LEGACY_LLM_PROVIDER_IDS[legacy_name]
+        if provider_id in existing:
+            continue
+        model = model_configs[legacy_name]
+        providers.append(LlmProvider(
+            id=provider_id,
+            name=names[legacy_name],
+            enabled=model.enabled,
+            mode=model.mode,
+            base_url=model.base_url,
+            api_key=model.api_key,
+            model=model.model,
+            local_model=model.local_model,
+        ))
+        existing.add(provider_id)
+
+
 def _build_config(current: Config, payload: object) -> Config:
     data = _mapping(payload, "settings")
     models = _mapping(data.get("models"), "models")
@@ -282,7 +616,9 @@ def _build_config(current: Config, payload: object) -> Config:
     asr = _mapping(data.get("asr"), "asr")
     entities = _mapping(data.get("entities"), "entities")
     agent = _mapping(data.get("agent"), "agent")
+    rag = _mapping(data.get("rag"), "rag")
     fallback = _mapping(data.get("agent_fallback"), "agent_fallback")
+    extractors = _mapping(data.get("extractors"), "extractors")
 
     config_dir = current.config_path.parent if current.config_path else None
     db_path = _path(
@@ -300,6 +636,21 @@ def _build_config(current: Config, payload: object) -> Config:
     chunk_overlap = _integer(_setting(data, "chunk_overlap", current.chunk_overlap), "分块重叠", 0)
     if chunk_overlap >= chunk_size:
         raise ValueError("分块重叠必须小于分块大小")
+
+    llm_providers = _llm_providers_from_payload(
+        current,
+        data.get("llm_providers") if "llm_providers" in data else None,
+        models.get("llm") if "llm" in models else None,
+    )
+    _ensure_legacy_rule_providers(current, llm_providers, extractors)
+    provider_ids = {provider.id for provider in llm_providers}
+    extractor_rules = _extractor_rules_from_payload(current, extractors, provider_ids)
+    plugin_dir_value = extractors.get(
+        "plugin_dir", extractors.get("custom_dir", str(current.extractor_dir)),
+    )
+    extractor_dir = _path(plugin_dir_value, "Python 插件目录", base_dir=config_dir)
+    if extractor_dir.exists() and not extractor_dir.is_dir():
+        raise ValueError(f"Python 插件目录不是文件夹: {extractor_dir}")
 
     current_models: dict[str, ModelCfg] = {}
     for name, attr in MODEL_FIELDS.items():
@@ -417,12 +768,15 @@ def _build_config(current: Config, payload: object) -> Config:
         folders=folders,
         exclude=exclude,
         max_file_mb=max_file_mb,
-        llm=resolved_models["llm"],
+        llm=(llm_providers[0].model_config() if llm_providers else current.llm),
+        llm_providers=llm_providers,
         agent_model=resolved_models["agent"],
         entities_model=resolved_models["entities"],
-        fallback_model=resolved_models["fallback"],
-        vision=resolved_models["vision"],
+        fallback_model=current.fallback_model,
+        vision=current.vision,
         embedding=resolved_models["embedding"],
+        extractor_dir=extractor_dir,
+        extractor_rules=extractor_rules,
         script_rules=list(current.script_rules),
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,
@@ -436,8 +790,16 @@ def _build_config(current: Config, payload: object) -> Config:
             max_per_file=_integer(_setting(entities, "max_per_file", current.entities.max_per_file), "entities.max_per_file", 1),
         ),
         agent=AgentCfg(
+            enabled=_bool(_setting(agent, "enabled", current.agent.enabled), "agent.enabled"),
             max_steps=_integer(_setting(agent, "max_steps", current.agent.max_steps), "agent.max_steps", 1),
             max_results=_integer(_setting(agent, "max_results", current.agent.max_results), "agent.max_results", 1),
+        ),
+        rag=RagCfg(
+            enabled=_bool(_setting(rag, "enabled", current.rag.enabled), "rag.enabled"),
+            max_context_chunks=_integer(
+                _setting(rag, "max_context_chunks", current.rag.max_context_chunks),
+                "rag.max_context_chunks", 1,
+            ),
         ),
         agent_fallback=AgentFallbackCfg(
             enabled=_bool(_setting(fallback, "enabled", current.agent_fallback.enabled), "agent_fallback.enabled"),
@@ -486,6 +848,21 @@ def _model_toml(name: str, cfg: ModelCfg) -> list[str]:
     ]
 
 
+def _provider_toml(provider: LlmProvider) -> list[str]:
+    return [
+        "[[llm_providers.items]]",
+        f"id = {_toml_string(provider.id)}",
+        f"name = {_toml_string(provider.name)}",
+        f"enabled = {_toml_bool(provider.enabled)}",
+        f"mode = {_toml_string(provider.mode)}",
+        f"base_url = {_toml_string(provider.base_url)}",
+        f"api_key = {_toml_string(provider.api_key)}",
+        f"model = {_toml_string(provider.model)}",
+        f"local_model = {_toml_string(provider.local_model)}",
+        "",
+    ]
+
+
 def _to_toml(config: Config) -> str:
     lines = [
         "# Semdex 配置文件。此文件可由网页设置页或手工编辑。",
@@ -502,7 +879,12 @@ def _to_toml(config: Config) -> str:
         f"debounce_sec = {config.watch_debounce_sec:g}",
         f"reconcile_sec = {config.watch_reconcile_sec:g}",
         "",
+        "[llm_providers]",
+        "configured = true",
+        "",
     ]
+    for provider in config.llm_providers or []:
+        lines.extend(_provider_toml(provider))
     for name, attr in MODEL_FIELDS.items():
         model = getattr(config, attr) or config.llm
         lines.extend(_model_toml(name, model))
@@ -544,14 +926,47 @@ def _to_toml(config: Config) -> str:
         f"max_per_file = {config.entities.max_per_file}",
         "",
         "[agent]",
+        f"enabled = {_toml_bool(config.agent.enabled)}",
         f"max_steps = {config.agent.max_steps}",
         f"max_results = {config.agent.max_results}",
         "",
+        "[rag]",
+        f"enabled = {_toml_bool(config.rag.enabled)}",
+        f"max_context_chunks = {config.rag.max_context_chunks}",
+        "",
+        # Kept only so old hand-written/API settings round-trip. The primary
+        # router no longer invokes this fallback.
         "[agent_fallback]",
         f"enabled = {_toml_bool(config.agent_fallback.enabled)}",
         f"max_bytes = {config.agent_fallback.max_bytes}",
         "",
+        "[extractors]",
+        f"plugin_dir = {_toml_string(_storage_path_for_toml(config.extractor_dir, config))}",
+        "",
     ])
+    for rule in config.extractor_rules:
+        lines.extend([
+            "[[extractors.rules]]",
+            f"id = {_toml_string(rule.id)}",
+            f"label = {_toml_string(rule.label)}",
+            f"kind = {_toml_string(rule.kind)}",
+            f"enabled = {_toml_bool(rule.enabled)}",
+            f"extensions = {_toml_list(rule.extensions)}",
+        ])
+        if rule.kind == "python":
+            lines.extend([
+                f"plugin = {_toml_string(rule.plugin)}",
+                f"function = {_toml_string(rule.function)}",
+            ])
+        elif rule.kind == "llm":
+            lines.extend([
+                f"provider = {_toml_string(rule.provider)}",
+                f"input_mode = {_toml_string(rule.input_mode)}",
+                f"prompt = {_toml_string(rule.prompt)}",
+            ])
+            if rule.provider in set(LEGACY_LLM_PROVIDER_IDS.values()):
+                lines.append(f"model = {_toml_string(rule.model)}")
+        lines.append("")
     for rule in config.script_rules:
         lines.extend([
             "[[extractors.rules]]",
@@ -571,6 +986,12 @@ def save_settings(current: Config, payload: object) -> Config:
     _validate_database_path(candidate.db_path)
     config_path = current.config_path.expanduser()
     config_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    candidate.extractor_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    try:
+        os.chmod(candidate.extractor_dir, 0o700)
+    except OSError:
+        pass
+    seed_shipped_plugins(candidate.extractor_dir)
     text = _to_toml(candidate)
 
     # Validate exactly the form that will hit disk before replacing the live

@@ -1,5 +1,5 @@
 """冒烟测试：建临时库 → 索引示例文件 → 中/英文搜索 → 状态与降级路径。
-不依赖任何模型服务（图片应落在 waiting_model）。运行: uv run pytest -q
+不依赖任何模型服务（图片应等待 OCR 插件能力）。运行: uv run pytest -q
 """
 from __future__ import annotations
 
@@ -60,11 +60,11 @@ def test_index_statuses(env):
     scan_stats, index_stats = _run_index(cfg, db)
     assert scan_stats.scanned == 5
     assert index_stats.indexed == 3          # txt + md + docx
-    assert index_stats.waiting_model == 1    # png：视觉模型未启用
+    assert index_stats.waiting_capability == 1  # png：OCR 插件未配置
     assert index_stats.skipped == 1          # .zzz：无提取器
     by_status = db.counts()["by_status"]
     assert by_status.get("done") == 3
-    assert by_status.get("waiting_model") == 1
+    assert by_status.get("waiting_capability") == 1
 
 
 def test_chinese_search(env):

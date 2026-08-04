@@ -39,15 +39,16 @@ class _Response:
         return self.payload
 
 
-def test_default_template_keeps_the_legacy_llm_as_the_common_default(tmp_path: Path):
+def test_default_template_separates_primary_providers_from_downstream_models(tmp_path: Path):
     path = tmp_path / "config.toml"
     path.write_text(CONFIG_TEMPLATE, encoding="utf-8")
 
     cfg = load_config(path)
 
-    assert cfg.agent_model is not None and cfg.agent_model.model == cfg.llm.model
-    assert cfg.entities_model is not None and cfg.entities_model.model == cfg.llm.model
-    assert cfg.fallback_model is not None and cfg.fallback_model.model == cfg.llm.model
+    assert cfg.llm_providers and cfg.llm_providers[0].id == "default"
+    assert cfg.agent_model is not None and cfg.agent_model is not cfg.llm
+    assert cfg.entities_model is not None and cfg.entities_model is not cfg.llm
+    assert cfg.embedding is not cfg.llm
 
 
 def test_legacy_llm_config_is_copied_for_per_purpose_models(tmp_path: Path):
@@ -150,7 +151,7 @@ def test_agent_and_entities_choose_their_dedicated_models(tmp_path: Path, monkey
     db.close()
 
 
-def test_unknown_text_fallback_uses_its_dedicated_model(tmp_path: Path, monkeypatch):
+def test_legacy_unknown_text_fallback_is_not_an_active_primary_route(tmp_path: Path, monkeypatch):
     root = tmp_path / "files"
     root.mkdir()
     (root / "note.unknowntext").write_text("未知格式中的项目记录", encoding="utf-8")
@@ -174,8 +175,9 @@ def test_unknown_text_fallback_uses_its_dedicated_model(tmp_path: Path, monkeypa
     db = Database(cfg.db_path)
     try:
         scan(db, cfg, log=lambda *_: None)
-        assert indexer.index_pending(db, cfg, log=lambda *_: None).indexed == 1
-        assert ("fallback", "fallback-only") in selected
+        stats = indexer.index_pending(db, cfg, log=lambda *_: None)
+        assert stats.skipped == 1
+        assert ("fallback", "fallback-only") not in selected
     finally:
         db.close()
 
